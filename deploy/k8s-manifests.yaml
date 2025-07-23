@@ -1,0 +1,119 @@
+---
+# Namespace for CEL validation jobs
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cel-validation
+  labels:
+    name: cel-validation
+---
+# ServiceAccount for scanner jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cel-scanner
+  namespace: cel-validation
+---
+# ClusterRole for scanner jobs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cel-scanner
+rules:
+# Read-only access to all resources
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+# Specific permissions for node filesystem access
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["nodes/proxy"]
+  verbs: ["get"]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cel-scanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cel-scanner
+subjects:
+- kind: ServiceAccount
+  name: cel-scanner
+  namespace: cel-validation
+---
+# Role for the RPC server to create jobs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cel-rpc-server
+  namespace: cel-validation
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete", "get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+---
+# RoleBinding for RPC server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cel-rpc-server
+  namespace: cel-validation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cel-rpc-server
+subjects:
+- kind: ServiceAccount
+  name: cel-rpc-server
+  namespace: cel-validation
+---
+# ServiceAccount for RPC server
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cel-rpc-server
+  namespace: cel-validation
+---
+# For OpenShift: Security Context Constraint
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: cel-scanner-privileged
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: true
+allowPrivilegedContainer: true
+allowedCapabilities:
+- '*'
+defaultAddCapabilities: null
+fsGroup:
+  type: RunAsAny
+priority: null
+readOnlyRootFilesystem: false
+requiredDropCapabilities: null
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+seccompProfiles:
+- '*'
+supplementalGroups:
+  type: RunAsAny
+users:
+- system:serviceaccount:cel-validation:cel-scanner
+volumes:
+- '*' 

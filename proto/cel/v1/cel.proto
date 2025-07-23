@@ -1,0 +1,611 @@
+syntax = "proto3";
+
+package cel.v1;
+
+option go_package = "github.com/Vincent056/cel-rpc-server/gen/cel/v1;celv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Request and response messages for CEL validation
+message ValidateCELRequest {
+  string expression = 1;  // CEL expression to evaluate
+  repeated RuleTestCase test_cases = 2;  // Test cases for offline validation
+  repeated RuleInput inputs = 3;  // Multiple inputs for the rule
+}
+
+// Input definition for CEL rules
+message RuleInput {
+  string name = 1;  // Variable name in CEL expression
+  
+  oneof input_type {
+    KubernetesInput kubernetes = 2;
+    FileInput file = 3;
+    HttpInput http = 4;
+  }
+}
+
+// Kubernetes resource input
+message KubernetesInput {
+  string group = 1;
+  string version = 2;
+  string resource = 3;
+  string namespace = 4;
+  string resource_name = 5;  // Specific resource name (optional)
+  bool list_all = 6;  // If true, fetch all resources as a list
+}
+
+// File system input
+message FileInput {
+  string path = 1;
+  string format = 2;  // json, yaml, text
+  bool recursive = 3;
+  bool check_permissions = 4;
+  
+  // Node targeting for cluster file system checks
+  oneof target {
+    NodeSelector node_selector = 5;  // Run on specific node(s)
+    bool all_nodes = 6;              // Run on all nodes
+  }
+  
+  // How to access the file system
+  FileAccessMode access_mode = 7;
+}
+
+// Node selection criteria
+message NodeSelector {
+  repeated string node_names = 1;          // Specific node names
+  map<string, string> labels = 2;          // Node label selector
+  repeated string taints_tolerated = 3;    // Tolerate specific taints
+}
+
+// How to access files on nodes
+enum FileAccessMode {
+  FILE_ACCESS_MODE_UNSPECIFIED = 0;
+  FILE_ACCESS_MODE_HOST_PATH = 1;      // Direct host path access (requires privileges)
+  FILE_ACCESS_MODE_CONTAINER = 2;      // Access from within container
+  FILE_ACCESS_MODE_DAEMONSET = 3;      // Deploy as DaemonSet for node access
+  FILE_ACCESS_MODE_SSH = 4;            // SSH to node (requires credentials)
+}
+
+// HTTP API input
+message HttpInput {
+  string url = 1;
+  string method = 2;
+  map<string, string> headers = 3;
+  string body = 4;
+}
+
+
+message ValidationResponse {
+  bool success = 1;
+  repeated ValidationResult results = 2;
+  string error = 3;
+  PerformanceMetrics performance = 4;
+}
+
+message ValidationResult {
+  string test_case = 1;
+  bool passed = 2;
+  string error = 3;
+  string details = 4;
+  
+  // Resource information for better debugging
+  ResourceInfo resource_info = 5;
+  map<string, string> evaluation_context = 6; // Variables used in evaluation
+}
+
+// Information about the resource being evaluated
+message ResourceInfo {
+  string api_version = 1;
+  string kind = 2;
+  string name = 3;
+  string namespace = 4;
+  string uid = 5;
+}
+
+message PerformanceMetrics {
+  int64 total_time_ms = 1;
+  int64 average_time_ms = 2;
+  int32 resources_count = 3;
+}
+
+// Request and response for resource discovery
+message DiscoverResourcesRequest {
+  string namespace = 1;
+  repeated string resource_types = 2; // Deprecated: use gvr_filters instead
+  
+  // GVR filters for resource discovery
+  repeated GVRFilter gvr_filters = 3;
+  
+  // Configuration options for discovery
+  DiscoveryOptions options = 4;
+}
+
+// Discovery configuration options
+message DiscoveryOptions {
+  bool include_count = 1;        // Whether to count resources (default: true)
+  bool include_samples = 2;      // Whether to include sample resources (default: false)
+  int32 max_samples_per_type = 3; // Max number of samples per resource type (default: 1)
+}
+
+// GroupVersionResource filter
+message GVRFilter {
+  string group = 1;
+  string version = 2;
+  string resource = 3;
+}
+
+message ResourceDiscoveryResponse {
+  bool success = 1;
+  repeated DiscoveredResource resources = 2;
+  string error = 3;
+}
+
+message DiscoveredResource {
+  string api_version = 1;
+  string kind = 2;
+  string name = 3;
+  string namespace = 4;
+  int32 count = 5;
+  repeated ResourceSample samples = 6; // Sample resources
+}
+
+// Sample resource information
+message ResourceSample {
+  string name = 1;
+  string namespace = 2;
+  map<string, string> labels = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// Agent execution messages
+message AgentTask {
+  string id = 1;
+  string type = 2;
+  string objective = 3;
+  string context_json = 4; // JSON-encoded context
+  map<string, string> parameters = 5;
+}
+
+message AgentExecutionRequest {
+  AgentTask task = 1;
+  string agent_role = 2;
+  bool use_cel_validation = 3;
+}
+
+message AgentExecutionResponse {
+  bool success = 1;
+  string result_json = 2; // JSON-encoded result
+  string error = 3;
+  repeated string logs = 4;
+  int64 execution_time_ms = 5;
+}
+
+// Service definition
+service CELValidationService {
+  rpc ValidateCEL(ValidateCELRequest) returns (ValidationResponse);
+  
+  // ValidateCELStream provides bidirectional streaming for real-time validation
+  rpc ValidateCELStream(stream ValidateCELStreamRequest) returns (stream ValidateCELStreamResponse);
+  
+  rpc DiscoverResources(DiscoverResourcesRequest) returns (ResourceDiscoveryResponse);
+  rpc ExecuteAgentTask(AgentExecutionRequest) returns (AgentExecutionResponse);
+  
+  // ChatAssist provides server streaming for AI-assisted CEL rule generation and validation
+  rpc ChatAssist(ChatAssistRequest) returns (stream ChatAssistResponse);
+  
+  // Rule Library Operations
+  rpc SaveRule(SaveRuleRequest) returns (SaveRuleResponse);
+  rpc GetRule(GetRuleRequest) returns (GetRuleResponse);
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+  rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse);
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+  rpc ExportRules(ExportRulesRequest) returns (ExportRulesResponse);
+  rpc ImportRules(ImportRulesRequest) returns (ImportRulesResponse);
+  rpc ValidateRuleWithTestCases(ValidateRuleWithTestCasesRequest) returns (ValidateRuleWithTestCasesResponse);
+}
+
+// ValidateCELStreamRequest is sent by client to initiate validation
+message ValidateCELStreamRequest {
+  oneof request {
+    // Initial validation request
+    ValidateCELRequest validation_request = 1;
+    
+    // Control message (e.g., cancel specific node)
+    StreamControl control = 2;
+  }
+}
+
+// StreamControl allows client to control the stream
+message StreamControl {
+  enum Action {
+    CANCEL = 0;
+    PAUSE = 1;
+    RESUME = 2;
+  }
+  
+  Action action = 1;
+  string node_name = 2;  // Optional: target specific node
+  string job_id = 3;     // Optional: target specific job
+}
+
+// ValidateCELStreamResponse streams back results and status updates
+message ValidateCELStreamResponse {
+  oneof response {
+    // Node scanner status update
+    NodeScannerStatus node_status = 1;
+    
+    // Validation result from a node
+    NodeValidationResult node_result = 2;
+    
+    // Overall progress update
+    ValidationProgress progress = 3;
+    
+    // Error occurred
+    StreamError error = 4;
+  }
+}
+
+// NodeScannerStatus tracks the status of a scanner on a specific node
+message NodeScannerStatus {
+  string node_name = 1;
+  string job_id = 2;
+  
+  enum Status {
+    PENDING = 0;
+    SCHEDULED = 1;
+    RUNNING = 2;
+    COMPLETED = 3;
+    FAILED = 4;
+    CANCELLED = 5;
+  }
+  
+  Status status = 3;
+  string message = 4;
+  int64 timestamp = 5;
+}
+
+// NodeValidationResult contains results from a specific node
+message NodeValidationResult {
+  string node_name = 1;
+  string job_id = 2;
+  string file_path = 3;
+  string expression = 4;
+  
+  ValidationResult result = 5;
+  int64 duration_ms = 6;
+}
+
+// ValidationProgress tracks overall progress
+message ValidationProgress {
+  int32 total_nodes = 1;
+  int32 completed_nodes = 2;
+  int32 failed_nodes = 3;
+  int32 pending_nodes = 4;
+  
+  map<string, NodeScannerStatus> node_statuses = 5;
+}
+
+// StreamError represents an error in the stream
+message StreamError {
+  string error = 1;
+  string node_name = 2;  // Optional: node where error occurred
+  string details = 3;
+}
+
+// Chat Assistant Messages
+message ChatAssistRequest {
+  string message = 1;  // User's chat message
+  
+  oneof context {
+    // Context for rule generation
+    RuleGenerationContext rule_context = 2;
+    
+    // Test data for validation
+    TestDataContext test_context = 3;
+    
+    // Rule modification context
+    RuleModificationContext modification_context = 4;
+  }
+  
+  // Optional: conversation ID to maintain context
+  string conversation_id = 5;
+}
+
+message RuleGenerationContext {
+  // Target resource type
+  string resource_type = 1;  // e.g., "Pod", "Deployment"
+  string api_version = 2;    // e.g., "v1", "apps/v1"
+  
+  // What to validate
+  string validation_intent = 3;  // e.g., "ensure pods have resource limits"
+  
+  // Whether to validate against live cluster
+  bool use_live_cluster = 4;
+  
+  // Namespace for live validation
+  string namespace = 5;
+}
+
+message TestDataContext {
+  // Test data as JSON
+  string test_data_json = 1;
+  
+  // Expected result for the test
+  bool expected_result = 2;
+  
+  // Description of what we're testing
+  string description = 3;
+}
+
+message ChatAssistResponse {
+  oneof content {
+    // LLM is thinking/processing
+    ThinkingMessage thinking = 1;
+    
+    // Generated CEL rule
+    GeneratedRule rule = 2;
+    
+    // Validation result
+    ValidationMessage validation = 3;
+    
+    // General text response
+    TextMessage text = 4;
+    
+    // Error occurred
+    ErrorMessage error = 5;
+    
+    // Resource discovery result
+    ResourcesFound resources = 6;
+  }
+  
+  // Timestamp for ordering
+  int64 timestamp = 7;
+}
+
+message ThinkingMessage {
+  string message = 1;  // What the LLM is currently doing
+}
+
+message GeneratedRule {
+  string expression = 1;  // The CEL expression
+  string explanation = 2;  // Human-readable explanation
+  repeated string variables = 3;  // Variables used in the expression
+  repeated RuleInput suggested_inputs = 4;  // Suggested inputs for validation
+  repeated RuleTestCase test_cases = 5;  // Test cases for the rule
+  string name = 6;  // Rule name
+}
+
+message ValidationMessage {
+  bool success = 1;
+  int32 passed_count = 2;
+  int32 failed_count = 3;
+  repeated ValidationDetail details = 4;
+}
+
+message ValidationDetail {
+  string resource_name = 1;
+  string namespace = 2;
+  bool passed = 3;
+  string reason = 4;
+}
+
+message TextMessage {
+  string text = 1;
+  string type = 2;  // "info", "warning", "suggestion"
+}
+
+message ErrorMessage {
+  string error = 1;
+  string details = 2;
+}
+
+message ResourcesFound {
+  string resource_type = 1;
+  int32 count = 2;
+  repeated string namespaces = 3;
+}
+
+// Rule Library Messages
+message CELRule {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string expression = 4;
+  repeated RuleInput inputs = 5;
+  repeated string tags = 6;
+  string category = 7;
+  string severity = 8;  // low, medium, high, critical
+  repeated RuleTestCase test_cases = 9;
+  RuleMetadata metadata = 10;
+  bool is_verified = 11;
+  int64 created_at = 12;
+  int64 updated_at = 13;
+  string created_by = 14;
+  string last_modified_by = 15;
+}
+
+message RuleTestCase {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  map<string, string> test_data = 4;  // Input variable name -> JSON data
+  bool expected_result = 5;
+  string expected_message = 6;
+  bool is_passing = 7;
+  string actual_result = 8;
+}
+
+message RuleMetadata {
+  string compliance_framework = 1;  // CIS, NIST, PCI-DSS, etc.
+  repeated string references = 2;   // Links to documentation
+  string remediation = 3;           // How to fix if rule fails
+  repeated string platforms = 4;    // kubernetes, openshift, etc.
+  map<string, string> custom_fields = 5;
+}
+
+// Save Rule
+message SaveRuleRequest {
+  CELRule rule = 1;
+  bool validate_before_save = 2;
+  bool run_test_cases = 3;
+}
+
+message SaveRuleResponse {
+  bool success = 1;
+  string rule_id = 2;
+  string error = 3;
+  repeated TestCaseResult test_results = 4;
+}
+
+// Get Rule
+message GetRuleRequest {
+  string rule_id = 1;
+}
+
+message GetRuleResponse {
+  CELRule rule = 1;
+  bool found = 2;
+}
+
+// List Rules
+message ListRulesRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  ListRulesFilter filter = 3;
+  string sort_by = 4;  // name, created_at, updated_at, severity
+  bool ascending = 5;
+}
+
+message ListRulesFilter {
+  repeated string tags = 1;
+  string category = 2;
+  string severity = 3;
+  string search_text = 4;
+  bool verified_only = 5;
+  string compliance_framework = 6;
+  string resource_type = 7;
+}
+
+message ListRulesResponse {
+  repeated CELRule rules = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+// Update Rule
+message UpdateRuleRequest {
+  CELRule rule = 1;
+  bool validate_before_update = 2;
+  bool run_test_cases = 3;
+  repeated string update_fields = 4;  // Which fields to update
+}
+
+message UpdateRuleResponse {
+  bool success = 1;
+  string error = 2;
+  repeated TestCaseResult test_results = 3;
+}
+
+// Delete Rule
+message DeleteRuleRequest {
+  string rule_id = 1;
+}
+
+message DeleteRuleResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Export Rules
+message ExportRulesRequest {
+  repeated string rule_ids = 1;  // Empty means export all
+  ExportFormat format = 2;
+  ListRulesFilter filter = 3;    // Alternative to rule_ids
+  bool include_test_cases = 4;
+  bool include_metadata = 5;
+}
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_JSON = 1;
+  EXPORT_FORMAT_YAML = 2;
+  EXPORT_FORMAT_REGO = 3;  // Convert to OPA Rego
+  EXPORT_FORMAT_SENTINEL = 4;  // Convert to HashiCorp Sentinel
+}
+
+message ExportRulesResponse {
+  bool success = 1;
+  string error = 2;
+  bytes data = 3;  // The exported data
+  string content_type = 4;
+  int32 rule_count = 5;
+}
+
+// Import Rules
+message ImportRulesRequest {
+  bytes data = 1;
+  ImportFormat format = 2;
+  ImportOptions options = 3;
+}
+
+enum ImportFormat {
+  IMPORT_FORMAT_UNSPECIFIED = 0;
+  IMPORT_FORMAT_JSON = 1;
+  IMPORT_FORMAT_YAML = 2;
+  IMPORT_FORMAT_AUTO_DETECT = 3;
+}
+
+message ImportOptions {
+  bool overwrite_existing = 1;
+  bool validate_all = 2;
+  bool run_test_cases = 3;
+  bool skip_on_error = 4;
+  repeated string tags_to_add = 5;
+  string category_override = 6;
+}
+
+message ImportRulesResponse {
+  bool success = 1;
+  string error = 2;
+  int32 imported_count = 3;
+  int32 skipped_count = 4;
+  int32 failed_count = 5;
+  repeated ImportResult results = 6;
+}
+
+message ImportResult {
+  string rule_name = 1;
+  bool success = 2;
+  string error = 3;
+  string rule_id = 4;
+}
+
+// Validate Rule with Test Cases
+message ValidateRuleWithTestCasesRequest {
+  CELRule rule = 1;
+  bool run_against_cluster = 2;
+  string namespace = 3;
+}
+
+message ValidateRuleWithTestCasesResponse {
+  bool all_passed = 1;
+  repeated TestCaseResult test_results = 2;
+  repeated ValidationResult cluster_results = 3;
+}
+
+message TestCaseResult {
+  string test_case_id = 1;
+  string test_case_name = 2;
+  bool passed = 3;
+  string actual_result = 4;
+  string error = 5;
+  int64 duration_ms = 6;
+}
+
+// Rule Modification Context (added to existing ChatAssistRequest)
+message RuleModificationContext {
+  string rule_id = 1;  // ID of rule to modify
+  CELRule current_rule = 2;  // Current rule definition
+  string modification_intent = 3;  // What to change
+} 

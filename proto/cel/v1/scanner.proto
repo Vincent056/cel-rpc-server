@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package cel.v1;
+
+option go_package = "github.com/Vincent056/cel-rpc-server/gen/cel/v1;celv1";
+
+// ScannerResultService is used by scanner pods to report results back
+service ScannerResultService {
+    // StreamResults streams scan results as they are evaluated
+    rpc StreamResults(stream ScanResultReport) returns (ScanResultResponse);
+}
+
+// ScanResultReport contains the scan results from a node
+message ScanResultReport {
+    // Unique job ID
+    string job_id = 1;
+    
+    // Node name where the scan was executed
+    string node_name = 2;
+    
+    // File path that was scanned
+    string file_path = 3;
+    
+    // CEL expression that was evaluated
+    string expression = 4;
+    
+    // Whether the scan succeeded
+    bool success = 5;
+    
+    // Error message if scan failed
+    string error = 6;
+    
+    // Scan results
+    repeated ScanResult results = 7;
+    
+    // Duration in milliseconds
+    int64 duration_ms = 8;
+}
+
+// ScanResult represents a single evaluation result
+message ScanResult {
+    // Status of the check (pass, fail, error)
+    string status = 1;
+    
+    // Error message if check failed
+    string error_message = 2;
+    
+    // Additional details
+    string details = 3;
+}
+
+// ScanResultResponse acknowledges receipt of results
+message ScanResultResponse {
+    // Whether the result was accepted
+    bool accepted = 1;
+    
+    // Any error message
+    string error = 2;
+} 

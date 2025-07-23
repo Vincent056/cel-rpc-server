@@ -1,0 +1,234 @@
+# Example Kubernetes manifests for node-specific file system checks
+
+---
+# ServiceAccount with necessary permissions
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cel-validator
+  namespace: cel-validation
+
+---
+# ClusterRole for creating Jobs/DaemonSets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cel-validator
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: ["apps"]
+  resources: ["daemonsets"]
+  verbs: ["get", "list", "create", "delete"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cel-validator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cel-validator
+subjects:
+- kind: ServiceAccount
+  name: cel-validator
+  namespace: cel-validation
+
+---
+# OpenShift SecurityContextConstraints (if using OpenShift)
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: cel-validator-scc
+allowPrivilegedContainer: true
+allowHostDirVolumePlugin: true
+allowHostPID: false
+allowHostNetwork: false
+allowHostPorts: false
+readOnlyRootFilesystem: false
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+users:
+- system:serviceaccount:cel-validation:cel-validator
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- hostPath
+- persistentVolumeClaim
+- projected
+- secret
+
+---
+# ConfigMap with validation script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cel-validator-script
+  namespace: cel-validation
+data:
+  validate.sh: |
+    #!/bin/bash
+    # This script runs on the node and collects file data
+    
+    FILE_PATH="$1"
+    OUTPUT_FILE="/tmp/validation-result.json"
+    
+    if [ -f "$FILE_PATH" ]; then
+      # Read file content
+      CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
+      PERMISSIONS=$(stat -c %a "$FILE_PATH" 2>/dev/null || echo "")
+      OWNER=$(stat -c %U:%G "$FILE_PATH" 2>/dev/null || echo "")
+      
+      # Create JSON output
+      cat > "$OUTPUT_FILE" <<EOF
+    {
+      "node": "$NODE_NAME",
+      "path": "$FILE_PATH",
+      "exists": true,
+      "content": $(echo "$CONTENT" | jq -Rs .),
+      "permissions": "$PERMISSIONS",
+      "owner": "$OWNER",
+      "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    }
+    EOF
+    else
+      cat > "$OUTPUT_FILE" <<EOF
+    {
+      "node": "$NODE_NAME",
+      "path": "$FILE_PATH",
+      "exists": false,
+      "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    }
+    EOF
+    fi
+    
+    cat "$OUTPUT_FILE"
+
+---
+# Template Job for single node file check
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cel-file-check-template
+  namespace: cel-validation
+spec:
+  template:
+    metadata:
+      labels:
+        app: cel-file-validator
+    spec:
+      serviceAccountName: cel-validator
+      restartPolicy: Never
+      nodeSelector: {} # Will be populated dynamically
+      tolerations: []  # Will be populated dynamically
+      containers:
+      - name: validator
+        image: busybox:latest
+        command: ["/bin/sh"]
+        args: ["/scripts/validate.sh", "/host/etc/kubernetes/kubelet.conf"]
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+          readOnly: true
+        - name: scripts
+          mountPath: /scripts
+        securityContext:
+          privileged: true
+          runAsUser: 0
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+          type: Directory
+      - name: scripts
+        configMap:
+          name: cel-validator-script
+          defaultMode: 0755
+
+---
+# DaemonSet for checking files on all nodes
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cel-file-validator
+  namespace: cel-validation
+spec:
+  selector:
+    matchLabels:
+      app: cel-file-validator
+  template:
+    metadata:
+      labels:
+        app: cel-file-validator
+    spec:
+      serviceAccountName: cel-validator
+      hostPID: false
+      hostNetwork: false
+      tolerations:
+      - operator: Exists  # Tolerate all taints
+      containers:
+      - name: validator
+        image: cel-validator:latest  # Custom image with CEL validator
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: host-etc
+          mountPath: /host/etc
+          readOnly: true
+        - name: host-var
+          mountPath: /host/var
+          readOnly: true
+        - name: host-opt
+          mountPath: /host/opt
+          readOnly: true
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - SYS_PTRACE
+            - AUDIT_CONTROL
+            - AUDIT_READ
+      volumes:
+      - name: host-etc
+        hostPath:
+          path: /etc
+          type: Directory
+      - name: host-var
+        hostPath:
+          path: /var
+          type: Directory
+      - name: host-opt
+        hostPath:
+          path: /opt
+          type: Directory 

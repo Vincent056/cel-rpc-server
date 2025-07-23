@@ -1,0 +1,67 @@
+{
+  "id":  "631c0c68-bd74-41c6-b385-ece80aeb35ab",
+  "name":  "Pod Service Account Requirement",
+  "description":  "This rule verifies that every Pod in the specified namespace has a non-empty 'serviceAccountName' field. This ensures that all Pods are explicitly assigned a service account, rather than running with no identity or the default service account, which improves workload isolation and security.",
+  "expression":  "pods.items.all(p, has(p.spec.serviceAccountName) && p.spec.serviceAccountName != \"\")",
+  "inputs":  [
+    {
+      "name":  "pods",
+      "kubernetes":  {
+        "version":  "v1",
+        "resource":  "pods",
+        "namespace":  "default"
+      }
+    }
+  ],
+  "tags":  [
+    "generated",
+    "ai-assisted"
+  ],
+  "category":  "security",
+  "severity":  "medium",
+  "test_cases":  [
+    {
+      "name":  "Valid pods with service accounts",
+      "description":  "All pods have non-empty service accounts",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod1\"},\"spec\":{\"serviceAccountName\":\"sa1\"}},{\"metadata\":{\"name\":\"pod2\"},\"spec\":{\"serviceAccountName\":\"sa2j\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-2",
+      "name":  "Invalid - pod with empty service account",
+      "description":  "One pod has empty service account name",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod1\"},\"spec\":{\"serviceAccountName\":\"\"}}]}"
+      }
+    },
+    {
+      "id":  "test-3",
+      "name":  "Edge Case - empty pod list",
+      "description":  "No pods present in the namespace",
+      "test_data":  {
+        "pods":  "{\"items\":[]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-4",
+      "name":  "Invalid - pod missing serviceAccountName field",
+      "description":  "Pod spec does not include 'serviceAccountName'",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod1\"},\"spec\":{}}]}"
+      }
+    }
+  ],
+  "metadata":  {
+    "platforms":  [
+      "kubernetes"
+    ]
+  },
+  "is_verified":  true,
+  "created_at":  "1753263114",
+  "updated_at":  "1753263114",
+  "created_by":  "chat-ui",
+  "last_modified_by":  "chat-ui"
+}
