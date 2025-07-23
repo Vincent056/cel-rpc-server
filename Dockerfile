@@ -25,7 +25,8 @@ COPY --from=builder /cel-rpc-server /usr/local/bin/cel-rpc-server
 # Expose the RPC & MCP ports
 
 # Make sure OPENAI_API_KEY is set as well as KUBECONFIG
-# ENV OPENAI_API_KEY=${OPENAI_API_KEY}
+ENV OPENAI_API_KEY=
+ENV KUBECONFIG=
 
 EXPOSE 8349
 

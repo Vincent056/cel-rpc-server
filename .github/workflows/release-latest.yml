@@ -1,0 +1,21 @@
+name: Release latest
+
+on:
+  push:
+    branches: ["master"]
+
+jobs:
+  # Push to latest
+  cel-rpc-server-container-push-latest:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    uses: metal-toolbox/container-push/.github/workflows/container-push.yml@main
+    with:
+      name: cel-rpc-server
+      registry_org: Vincent056
+      tag: latest
+      dockerfile_path: Dockerfile
+      vendor: "CEL RPC Server Authors"
+      platforms: "linux/amd64"
