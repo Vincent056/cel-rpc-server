@@ -1719,7 +1719,6 @@ Consider:
 - Validation requirements
 - Documentation needs
 - Optimization opportunities
-- Integration tasks
 
 Return a JSON array of task suggestions:
 [

@@ -23,9 +23,14 @@ FROM registry.access.redhat.com/ubi9/ubi:latest
 COPY --from=builder /cel-rpc-server /usr/local/bin/cel-rpc-server
 
 # Expose the RPC & MCP ports
-
-# Make sure OPENAI_API_KEY is set as well as KUBECONFIG
-# ENV OPENAI_API_KEY=${OPENAI_API_KEY}
+# Premake the KUBECONFIG file
+RUN mkdir -p /KUBECONFIG
+RUN touch /KUBECONFIG/kubeconfig
+# Make sure KUBECONFIG is set
+ENV KUBECONFIG=/KUBECONFIG/kubeconfig
+# Update the permissions of the KUBECONFIG file
+RUN chmod 600 /KUBECONFIG/kubeconfig
+ENV OPENAI_API_KEY=
 
 EXPOSE 8349
 

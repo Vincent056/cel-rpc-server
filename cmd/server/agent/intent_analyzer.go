@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 )
 
 // IntentAnalyzer uses AI to understand user intent
@@ -80,6 +81,13 @@ Context: %v`, message, context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze intent: %w", err)
 	}
+
+	// log intent
+	log.Printf("[IntentAnalyzer] Analyzed intent Type: %s, Confidence: %f", intent.Type, intent.Confidence)
+	log.Printf("[IntentAnalyzer] Analyzed intent Entities: %v", intent.Entities)
+	log.Printf("[IntentAnalyzer] Analyzed intent Required Steps: %v", intent.RequiredSteps)
+	log.Printf("[IntentAnalyzer] Analyzed intent Context: %v", intent.Context)
+	log.Printf("[IntentAnalyzer] Analyzed intent Suggested Tasks: %v", intent.SuggestedTasks)
 
 	return &intent, nil
 }
