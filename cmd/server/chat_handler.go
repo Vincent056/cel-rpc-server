@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"strings"
 	"time"
 
 	celv1 "github.com/Vincent056/cel-rpc-server/gen/cel/v1"
@@ -17,6 +18,9 @@ import (
 
 // ChatHandler handles chat assistance requests
 type ChatHandler struct {
+	coordinator            *agent.Coordinator
+	server                 *CELValidationServer
+	llmClient              agent.LLMClient
 	coordinator            *agent.Coordinator
 	server                 *CELValidationServer
 	llmClient              agent.LLMClient
@@ -135,7 +139,52 @@ func NewChatHandler(server *CELValidationServer) *ChatHandler {
 				}
 
 				handler.enhancedIntentAnalyzer = agent.NewEnhancedIntentAnalyzer(handler.llmClient, informationGatherer)
+	// Initialize AI provider
+	aiProviderConfig := getAIProviderConfig()
 
+	if aiProviderConfig.APIKey != "" || aiProviderConfig.Provider == "custom" {
+		log.Printf("[ChatHandler] Initializing with AI provider: %s\n", aiProviderConfig.Provider)
+
+		// Create AI provider
+		aiProvider, err := NewAIProvider(aiProviderConfig)
+		if err != nil {
+			log.Printf("[ChatHandler] Failed to create AI provider: %v\n", err)
+			// Fall back to pattern-based generation
+		} else {
+			// Create the appropriate LLM client based on the provider
+			llmConfig := agent.LLMConfig{
+				Provider:      aiProviderConfig.Provider,
+				APIKey:        aiProviderConfig.APIKey,
+				Endpoint:      aiProviderConfig.Endpoint,
+				Model:         aiProviderConfig.Model,
+				CustomHeaders: aiProviderConfig.CustomHeaders,
+			}
+
+			genericLLMClient, err := agent.NewGenericLLMClient(llmConfig)
+			if err != nil {
+				log.Printf("[ChatHandler] Failed to create generic LLM client: %v\n", err)
+				// Fall back to pattern-based generation
+			} else {
+				handler.llmClient = genericLLMClient
+			}
+
+			// Only initialize AI components if we have a valid LLM client
+			if handler.llmClient != nil {
+				// Initialize enhanced intent analyzer
+				var informationGatherer agent.InformationGatherer
+
+				// Check if information gathering is enabled (default: enabled for backward compatibility)
+				if os.Getenv("DISABLE_INFORMATION_GATHERING") != "true" {
+					informationGatherer = agent.NewOpenAIWebSearchGatherer(handler.llmClient)
+					log.Println("[ChatHandler] Information gathering enabled")
+				} else {
+					log.Println("[ChatHandler] Information gathering disabled")
+				}
+
+				handler.enhancedIntentAnalyzer = agent.NewEnhancedIntentAnalyzer(handler.llmClient, informationGatherer)
+
+				// Create validation service wrapper
+				validationService := &ValidationServiceWrapper{server: server}
 				// Create validation service wrapper
 				validationService := &ValidationServiceWrapper{server: server}
 
@@ -143,7 +192,15 @@ func NewChatHandler(server *CELValidationServer) *ChatHandler {
 				ruleAgent := agent.NewAIRuleGenerationAgent(handler.llmClient)
 				ruleAgent.SetValidator(validationService)
 				handler.coordinator.RegisterAgent(ruleAgent)
+				// Register AI-powered agents
+				ruleAgent := agent.NewAIRuleGenerationAgent(handler.llmClient)
+				ruleAgent.SetValidator(validationService)
+				handler.coordinator.RegisterAgent(ruleAgent)
 
+				// Also register the basic rule generation agent with the new AI provider
+				basicRuleAgent := agent.NewRuleGenerationAgent(aiProvider)
+				basicRuleAgent.SetValidator(validationService)
+				handler.coordinator.RegisterAgent(basicRuleAgent)
 				// Also register the basic rule generation agent with the new AI provider
 				basicRuleAgent := agent.NewRuleGenerationAgent(aiProvider)
 				basicRuleAgent.SetValidator(validationService)
@@ -158,8 +215,18 @@ func NewChatHandler(server *CELValidationServer) *ChatHandler {
 				handler.coordinator.SetPlanner(plannerWrapper)
 			}
 		}
+				// Set up AI-powered planner
+				aiPlanner := agent.NewAITaskPlanner(handler.coordinator, handler.llmClient)
+				// Create a proper TaskPlanner instance using the constructor
+				plannerWrapper := agent.NewTaskPlanner(handler.coordinator)
+				// Register the AI planner for rule generation
+				plannerWrapper.RegisterStrategy(agent.TaskTypeRuleGeneration, aiPlanner)
+				handler.coordinator.SetPlanner(plannerWrapper)
+			}
+		}
 	} else {
 		// Register pattern-based agent as fallback
+		log.Printf("[ChatHandler] No AI provider configured, using pattern-based generation")
 		log.Printf("[ChatHandler] No AI provider configured, using pattern-based generation")
 		// TODO: Register pattern-based agent
 	}
@@ -184,7 +251,7 @@ func getAIProviderConfig() AIProviderConfig {
 		config.APIKey = os.Getenv("OPENAI_API_KEY")
 		config.Model = os.Getenv("OPENAI_MODEL")
 		if config.Model == "" {
-			config.Model = "gpt-4"
+			config.Model = "gpt-4.1"
 		}
 	case "gemini":
 		config.APIKey = os.Getenv("GEMINI_API_KEY")
@@ -542,6 +609,7 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 	task.Input = input
 
 	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s",
+	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s",
 		enhancedIntent.Intent.Type, enhancedIntent.Intent.Confidence, enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
 
 	return task, nil
@@ -593,8 +661,10 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 	// Base priority on confidence and intent type
 	basePriority := 5
 
+
 	// Higher confidence gets higher priority
 	confidenceBonus := int(intent.Confidence * 5) // 0-5 bonus
+
 
 	// Certain intent types get priority boosts
 	switch intent.Type {
@@ -612,6 +682,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 		basePriority = 5
 	}
 
+
 	priority := basePriority + confidenceBonus
 	if priority > 10 {
 		priority = 10
@@ -619,6 +690,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 	if priority < 1 {
 		priority = 1
 	}
+
 
 	return priority
 }

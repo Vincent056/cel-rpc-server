@@ -228,7 +228,7 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 					if k8sInput := input.GetKubernetes(); k8sInput != nil {
 						// Check if the undeclared reference matches an input name
 						if strings.Contains(result.ErrorMessage, fmt.Sprintf("undeclared reference to '%s'", input.Name)) {
-							resp.Error = fmt.Sprintf("Failed to access Kubernetes cluster to fetch resources for input '%s' (%s/%s). This may be due to cluster connectivity issues, missing credentials, or invalid cluster configuration. Original CEL error: %s", 
+							resp.Error = fmt.Sprintf("Failed to access Kubernetes cluster to fetch resources for input '%s' (%s/%s). This may be due to cluster connectivity issues, missing credentials, or invalid cluster configuration. Original CEL error: %s",
 								input.Name, k8sInput.Version, k8sInput.Resource, result.ErrorMessage)
 							resp.Success = false
 							return connect.NewResponse(resp), nil

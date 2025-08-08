@@ -39,8 +39,10 @@ podman run -d \
   -p 8349:8349 \
   -e AI_PROVIDER=gemini \
   -e GEMINI_API_KEY=your-gemini-api-key \
+  -e DISABLE_INFORMATION_GATHERING=true \
   -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
   -v ./rules-library:/home/celuser/app/rules-library:Z \
+  --replace \
   ghcr.io/vincent056/cel-rpc-server
 
 # Run with local Ollama
