@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	celv1 "github.com/Vincent056/cel-rpc-server/gen/cel/v1"
@@ -16,9 +17,9 @@ import (
 
 // ChatHandler handles chat assistance requests
 type ChatHandler struct {
-	coordinator    *agent.Coordinator
-	server         *CELValidationServer
-	llmClient      agent.LLMClient
+	coordinator            *agent.Coordinator
+	server                 *CELValidationServer
+	llmClient              agent.LLMClient
 	enhancedIntentAnalyzer *agent.EnhancedIntentAnalyzer
 }
 
@@ -91,47 +92,126 @@ func NewChatHandler(server *CELValidationServer) *ChatHandler {
 		log.Println("[ChatHandler] Task executor started successfully")
 	}
 
-	// Create LLM client
-	openAIKey := os.Getenv("OPENAI_API_KEY")
-	if openAIKey != "" {
-		handler.llmClient = agent.NewOpenAILLMClient(openAIKey)
-		// Initialize enhanced intent analyzer with OpenAI web search-powered information gathering
-		informationGatherer := agent.NewOpenAIWebSearchGatherer(handler.llmClient)
-		handler.enhancedIntentAnalyzer = agent.NewEnhancedIntentAnalyzer(handler.llmClient, informationGatherer)
+	// Initialize AI provider
+	aiProviderConfig := getAIProviderConfig()
 
-		// Create validation service wrapper
-		validationService := &ValidationServiceWrapper{server: server}
+	if aiProviderConfig.APIKey != "" || aiProviderConfig.Provider == "custom" {
+		log.Printf("[ChatHandler] Initializing with AI provider: %s\n", aiProviderConfig.Provider)
 
-		// Register AI-powered agents
-		ruleAgent := agent.NewAIRuleGenerationAgent(handler.llmClient)
-		ruleAgent.SetValidator(validationService)
-		handler.coordinator.RegisterAgent(ruleAgent)
+		// Create AI provider
+		aiProvider, err := NewAIProvider(aiProviderConfig)
+		if err != nil {
+			log.Printf("[ChatHandler] Failed to create AI provider: %v\n", err)
+			// Fall back to pattern-based generation
+		} else {
+			// Create the appropriate LLM client based on the provider
+			llmConfig := agent.LLMConfig{
+				Provider:      aiProviderConfig.Provider,
+				APIKey:        aiProviderConfig.APIKey,
+				Endpoint:      aiProviderConfig.Endpoint,
+				Model:         aiProviderConfig.Model,
+				CustomHeaders: aiProviderConfig.CustomHeaders,
+			}
 
-		// Comment out the basic rule generation agent - we'll only use the AI-powered one
-		// which has streaming support
-		/*
-			// Also register the basic rule generation agent with validation service
-			// Create a separate OpenAI client for the basic rule agent
-			openAIClient := NewOpenAIClient(openAIKey)
-			basicRuleAgent := agent.NewRuleGenerationAgent(openAIClient)
-			basicRuleAgent.SetValidator(validationService)
-			handler.coordinator.RegisterAgent(basicRuleAgent)
-		*/
+			genericLLMClient, err := agent.NewGenericLLMClient(llmConfig)
+			if err != nil {
+				log.Printf("[ChatHandler] Failed to create generic LLM client: %v\n", err)
+				// Fall back to pattern-based generation
+			} else {
+				handler.llmClient = genericLLMClient
+			}
 
-		// Set up AI-powered planner
-		aiPlanner := agent.NewAITaskPlanner(handler.coordinator, handler.llmClient)
-		// Create a proper TaskPlanner instance using the constructor
-		plannerWrapper := agent.NewTaskPlanner(handler.coordinator)
-		// Register the AI planner for rule generation
-		plannerWrapper.RegisterStrategy(agent.TaskTypeRuleGeneration, aiPlanner)
-		handler.coordinator.SetPlanner(plannerWrapper)
+			// Only initialize AI components if we have a valid LLM client
+			if handler.llmClient != nil {
+				// Initialize enhanced intent analyzer
+				var informationGatherer agent.InformationGatherer
+
+				// Check if information gathering is enabled (default: enabled for backward compatibility)
+				if os.Getenv("DISABLE_INFORMATION_GATHERING") != "true" {
+					informationGatherer = agent.NewOpenAIWebSearchGatherer(handler.llmClient)
+					log.Println("[ChatHandler] Information gathering enabled")
+				} else {
+					log.Println("[ChatHandler] Information gathering disabled")
+				}
+
+				handler.enhancedIntentAnalyzer = agent.NewEnhancedIntentAnalyzer(handler.llmClient, informationGatherer)
+
+				// Create validation service wrapper
+				validationService := &ValidationServiceWrapper{server: server}
+
+				// Register AI-powered agents
+				ruleAgent := agent.NewAIRuleGenerationAgent(handler.llmClient)
+				ruleAgent.SetValidator(validationService)
+				handler.coordinator.RegisterAgent(ruleAgent)
+
+				// Also register the basic rule generation agent with the new AI provider
+				basicRuleAgent := agent.NewRuleGenerationAgent(aiProvider)
+				basicRuleAgent.SetValidator(validationService)
+				handler.coordinator.RegisterAgent(basicRuleAgent)
+
+				// Set up AI-powered planner
+				aiPlanner := agent.NewAITaskPlanner(handler.coordinator, handler.llmClient)
+				// Create a proper TaskPlanner instance using the constructor
+				plannerWrapper := agent.NewTaskPlanner(handler.coordinator)
+				// Register the AI planner for rule generation
+				plannerWrapper.RegisterStrategy(agent.TaskTypeRuleGeneration, aiPlanner)
+				handler.coordinator.SetPlanner(plannerWrapper)
+			}
+		}
 	} else {
 		// Register pattern-based agent as fallback
-		log.Println("[ChatHandler] No OpenAI key found, using pattern-based generation")
+		log.Printf("[ChatHandler] No AI provider configured, using pattern-based generation")
 		// TODO: Register pattern-based agent
 	}
 
 	return handler
+}
+
+// getAIProviderConfig builds AI provider configuration from environment variables
+func getAIProviderConfig() AIProviderConfig {
+	config := AIProviderConfig{
+		Provider: os.Getenv("AI_PROVIDER"), // "openai", "gemini", "custom"
+	}
+
+	// Default to OpenAI if not specified
+	if config.Provider == "" {
+		config.Provider = "openai"
+	}
+
+	// Get API key based on provider
+	switch config.Provider {
+	case "openai":
+		config.APIKey = os.Getenv("OPENAI_API_KEY")
+		config.Model = os.Getenv("OPENAI_MODEL")
+		if config.Model == "" {
+			config.Model = "gpt-4"
+		}
+	case "gemini":
+		config.APIKey = os.Getenv("GEMINI_API_KEY")
+		config.Model = os.Getenv("GEMINI_MODEL")
+		if config.Model == "" {
+			config.Model = "gemini-2.5-flash"
+		}
+	case "custom":
+		config.APIKey = os.Getenv("CUSTOM_AI_API_KEY")
+		config.Endpoint = os.Getenv("CUSTOM_AI_ENDPOINT")
+		config.Model = os.Getenv("CUSTOM_AI_MODEL")
+
+		// Parse custom headers if provided
+		customHeaders := os.Getenv("CUSTOM_AI_HEADERS")
+		if customHeaders != "" {
+			config.CustomHeaders = make(map[string]string)
+			// Format: "Header1:Value1,Header2:Value2"
+			for _, header := range strings.Split(customHeaders, ",") {
+				parts := strings.SplitN(header, ":", 2)
+				if len(parts) == 2 {
+					config.CustomHeaders[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+	}
+
+	return config
 }
 
 // HandleChatAssist processes chat requests using the agent system
@@ -461,7 +541,7 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 
 	task.Input = input
 
-	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s", 
+	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s",
 		enhancedIntent.Intent.Type, enhancedIntent.Intent.Confidence, enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
 
 	return task, nil
@@ -512,10 +592,10 @@ func (h *ChatHandler) createTaskFromRequestFallback(msg *celv1.ChatAssistRequest
 func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 	// Base priority on confidence and intent type
 	basePriority := 5
-	
+
 	// Higher confidence gets higher priority
 	confidenceBonus := int(intent.Confidence * 5) // 0-5 bonus
-	
+
 	// Certain intent types get priority boosts
 	switch intent.Type {
 	case "rule_generation":
@@ -531,7 +611,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 	default:
 		basePriority = 5
 	}
-	
+
 	priority := basePriority + confidenceBonus
 	if priority > 10 {
 		priority = 10
@@ -539,7 +619,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 	if priority < 1 {
 		priority = 1
 	}
-	
+
 	return priority
 }
 
