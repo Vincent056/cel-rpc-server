@@ -1,0 +1,76 @@
+{
+  "id":  "4045ea71-d94f-4a9c-bd46-1b2e05cdfb1e",
+  "name":  "Restrict VNC Access via RoleBindings",
+  "description":  "This rule ensures that only explicitly authorized users or groups can be granted access to generate VNC tokens via RoleBindings associated with the 'kubevirt-virtualmachineinstance-console' Role or ClusterRole. It enforces that for any such RoleBinding, all subjects must be limited to the users 'admin', 'ops-team', or 'vnc-access', or the group 'vnc-users'. This prevents broad or wildcard assignment of VNC console access and aligns with CIS Level 1 recommendations for least-privilege VNC access to KubeVirt workloads.",
+  "expression":  "rolebindings.items.all(rb, rb.roleRef.name != 'kubevirt-virtualmachineinstance-console' || (has(rb.subjects) && rb.subjects.all(s, (s.kind == 'User' && s.name.matches('^(admin|ops-team|vnc-access)$')) || (s.kind == 'Group' && s.name.matches('^vnc-users$')))))",
+  "inputs":  [
+    {
+      "name":  "rolebindings",
+      "kubernetes":  {
+        "group":  "rbac.authorization.k8s.io",
+        "version":  "v1",
+        "resource":  "rolebindings"
+      }
+    }
+  ],
+  "tags":  [
+    "generated",
+    "ai-assisted"
+  ],
+  "category":  "security",
+  "severity":  "medium",
+  "test_cases":  [
+    {
+      "id":  "test-1",
+      "name":  "Valid - Only authorized users and groups",
+      "description":  "All RoleBindings granting VNC access are restricted to permitted users and groups.",
+      "test_data":  {
+        "rolebindings":  "{\"items\":[{\"metadata\":{\"name\":\"console-access\"},\"roleRef\":{\"kind\":\"Role\",\"name\":\"kubevirt-virtualmachineinstance-console\"},\"subjects\":[{\"kind\":\"User\",\"name\":\"admin\"},{\"kind\":\"Group\",\"name\":\"vnc-users\"}]}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-2",
+      "name":  "Invalid - Wildcard user subject",
+      "description":  "A RoleBinding for VNC console access allows all users via wildcard.",
+      "test_data":  {
+        "rolebindings":  "{\"items\":[{\"metadata\":{\"name\":\"console-access\"},\"roleRef\":{\"kind\":\"Role\",\"name\":\"kubevirt-virtualmachineinstance-console\"},\"subjects\":[{\"kind\":\"User\",\"name\":\"*\"},{\"kind\":\"Group\",\"name\":\"vnc-users\"}]}]}"
+      }
+    },
+    {
+      "id":  "test-3",
+      "name":  "Invalid - Unauthorized user",
+      "description":  "A RoleBinding for VNC console access includes an unauthorized user.",
+      "test_data":  {
+        "rolebindings":  "{\"items\":[{\"metadata\":{\"name\":\"console-access\"},\"roleRef\":{\"kind\":\"Role\",\"name\":\"kubevirt-virtualmachineinstance-console\"},\"subjects\":[{\"kind\":\"User\",\"name\":\"developer\"},{\"kind\":\"Group\",\"name\":\"vnc-users\"}]}]}"
+      }
+    },
+    {
+      "id":  "test-4",
+      "name":  "Valid - No VNC console RoleBindings present",
+      "description":  "No RoleBindings grant the VNC console role; rule passes by default.",
+      "test_data":  {
+        "rolebindings":  "{\"items\":[{\"metadata\":{\"name\":\"readonly\"},\"roleRef\":{\"kind\":\"Role\",\"name\":\"view\"},\"subjects\":[{\"kind\":\"User\",\"name\":\"alice\"}]}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-5",
+      "name":  "Valid - Empty RoleBindings list",
+      "description":  "No RoleBindings exist at all; rule passes (as .all() is vacuously true).",
+      "test_data":  {
+        "rolebindings":  "{\"items\":[]}"
+      },
+      "expected_result":  true
+    }
+  ],
+  "metadata":  {
+    "platforms":  [
+      "kubernetes"
+    ]
+  },
+  "created_at":  "1754594372",
+  "updated_at":  "1754594372",
+  "created_by":  "chat-ui",
+  "last_modified_by":  "chat-ui"
+}

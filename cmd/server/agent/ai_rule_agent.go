@@ -162,6 +162,27 @@ func (a *AIRuleGenerationAgent) executeRuleGeneration(ctx context.Context, task 
 	message, _ := input["message"].(string)
 	intent, _ := input["intent"].(*Intent)
 
+	// Extract enhanced intent context with research findings
+	var enhancedIntent *EnhancedIntent
+	var analyzedContext *AnalyzedContext
+	if ei, ok := task.Context["enhanced_intent"]; ok {
+		enhancedIntent, _ = ei.(*EnhancedIntent)
+		log.Printf("[AIRuleGenerationAgent] Found enhanced intent with research: %v", enhancedIntent != nil)
+		if enhancedIntent != nil {
+			log.Printf("[AIRuleGenerationAgent] Enhanced intent requires research: %v, phase: %s", enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
+		}
+	}
+	
+	// Extract analyzed context with research findings
+	if ac, ok := task.Context["analyzed_context"]; ok {
+		analyzedContext, _ = ac.(*AnalyzedContext)
+		log.Printf("[AIRuleGenerationAgent] Found analyzed context with research: %v", analyzedContext != nil)
+		if analyzedContext != nil {
+			log.Printf("[AIRuleGenerationAgent] Research context available with %d rule recommendations", len(analyzedContext.RecommendedRules))
+			log.Printf("[AIRuleGenerationAgent] Documentation URLs: %v", analyzedContext.Context["documentation_urls"])
+		}
+	}
+
 	// Extract rule context
 	var ruleContext *celv1.RuleGenerationContext
 	if rc, ok := input["rule_context"]; ok {
@@ -202,8 +223,8 @@ func (a *AIRuleGenerationAgent) executeRuleGeneration(ctx context.Context, task 
 		requirements["namespace"] = ruleContext.Namespace
 	}
 
-	// Use the advanced generateRuleWithAI function
-	result, err := a.generateRuleWithAI(ctx, task, intent, requirements)
+	// Use the advanced generateRuleWithAI function with research context
+	result, err := a.generateRuleWithAI(ctx, task, intent, requirements, enhancedIntent, analyzedContext)
 	if err != nil {
 		log.Printf("[AIRuleGenerationAgent] Advanced AI generation failed: %v", err)
 		// Fallback to simple generation
@@ -249,8 +270,8 @@ func (a *AIRuleGenerationAgent) executeRuleGeneration(ctx context.Context, task 
 	return result, nil
 }
 
-// generateRuleWithAI generates rules using pure AI
-func (a *AIRuleGenerationAgent) generateRuleWithAI(ctx context.Context, task *Task, intent *Intent, requirements map[string]interface{}) (*TaskResult, error) {
+// generateRuleWithAI generates rules using pure AI with research context
+func (a *AIRuleGenerationAgent) generateRuleWithAI(ctx context.Context, task *Task, intent *Intent, requirements map[string]interface{}, enhancedIntent *EnhancedIntent, analyzedContext *AnalyzedContext) (*TaskResult, error) {
 	input, _ := task.Input.(map[string]interface{})
 	message, _ := input["message"].(string)
 	ruleContext, _ := input["context"].(*celv1.RuleGenerationContext)
@@ -264,13 +285,49 @@ func (a *AIRuleGenerationAgent) generateRuleWithAI(ctx context.Context, task *Ta
 		log.Printf("[AIRuleGenerationAgent] No stream channel found in task context")
 	}
 
+	// Build research context section if available
+	researchSection := ""
+	if analyzedContext != nil {
+		researchSection = fmt.Sprintf(`
+
+📚 RESEARCH FINDINGS:
+
+Summary: %s
+
+Key Requirements:
+`, analyzedContext.Summary)
+		for _, req := range analyzedContext.KeyRequirements {
+			researchSection += fmt.Sprintf("- %s\n", req)
+		}
+		researchSection += "\nConstraints:\n"
+		for _, constraint := range analyzedContext.Constraints {
+			researchSection += fmt.Sprintf("- %s\n", constraint)
+		}
+		researchSection += "\nRecommended Rules from Documentation:\n"
+		for i, rec := range analyzedContext.RecommendedRules {
+			researchSection += fmt.Sprintf("%d. %s (Priority: %d)\n", i+1, rec.Description, rec.Priority)
+			if rec.CELPattern != "" {
+				researchSection += fmt.Sprintf("   Suggested CEL: %s\n", rec.CELPattern)
+			}
+			researchSection += fmt.Sprintf("   Rationale: %s\n", rec.Rationale)
+		}
+		if docUrls, ok := analyzedContext.Context["documentation_urls"].([]interface{}); ok {
+			researchSection += "\nDocumentation Sources:\n"
+			for _, url := range docUrls {
+				if urlStr, ok := url.(string); ok {
+					researchSection += fmt.Sprintf("- %s\n", urlStr)
+				}
+			}
+		}
+	}
+
 	// Create comprehensive prompt for rule generation
 	generatePrompt := fmt.Sprintf(`Generate a CEL (Common Expression Language) rule based on this analysis:
 
 User Request: %s
 Intent Analysis: %v
 Requirements: %v
-Resource Context: %v
+Resource Context: %v%s
 
 🎯 STEP-BY-STEP GENERATION APPROACH:
 
@@ -561,7 +618,7 @@ ALWAYS test edge cases:
        s.metadata.namespace == i.metadata.namespace
      ))
    ))
-`, message, intent, requirements, ruleContext)
+`, message, intent, requirements, ruleContext, researchSection)
 
 	var generatedRule struct {
 		Name                    string                   `json:"name"`
@@ -913,6 +970,40 @@ Generate a response with the same structure as before.`,
 		a.sendThinking(streamChan, fmt.Sprintf("🧪 Generated %d test cases for the rule", len(response.Content.(*celv1.ChatAssistResponse_Rule).Rule.TestCases)))
 	}
 
+	// Build research context section for detailed analysis
+	researchDetailsSection := ""
+	if analyzedContext != nil {
+		researchDetailsSection = fmt.Sprintf(`
+
+📚 **Research Context:**
+
+**Summary:** %s
+
+**Key Requirements:**
+%s
+
+**Constraints:**
+%s
+
+**Rule Recommendations from Documentation:**
+%s`,
+			analyzedContext.Summary,
+			formatList(analyzedContext.KeyRequirements),
+			formatList(analyzedContext.Constraints),
+			formatRuleRecommendations(analyzedContext.RecommendedRules),
+		)
+
+		// Add documentation URLs if available
+		if docUrls, ok := analyzedContext.Context["documentation_urls"].([]interface{}); ok && len(docUrls) > 0 {
+			researchDetailsSection += "\n\n**Documentation Sources:**\n"
+			for _, url := range docUrls {
+				if urlStr, ok := url.(string); ok {
+					researchDetailsSection += fmt.Sprintf("- %s\n", urlStr)
+				}
+			}
+		}
+	}
+
 	// Send detailed analysis as a text message
 	if streamChan != nil {
 		detailsText := fmt.Sprintf(`📋 **Rule Analysis Details**
@@ -928,13 +1019,14 @@ Generate a response with the same structure as before.`,
 %s
 
 **Compliance Mappings:**
-%s`,
+%s%s`,
 			generatedRule.ComplexityScore,
 			generatedRule.SecurityImplications,
 			generatedRule.PerformanceImpact,
 			formatList(generatedRule.OptimizationSuggestions),
 			formatList(generatedRule.RelatedRules),
 			formatComplianceMappings(generatedRule.ComplianceMappings),
+			researchDetailsSection,
 		)
 
 		detailsMessage := &celv1.ChatAssistResponse{
@@ -1044,6 +1136,24 @@ func formatComplianceMappings(mappings map[string][]string) string {
 		result += fmt.Sprintf("• %s: %s\n", framework, strings.Join(controls, ", "))
 	}
 	return strings.TrimSpace(result)
+}
+
+// formatRuleRecommendations formats rule recommendations from research context for display
+func formatRuleRecommendations(recommendations []RuleRecommendation) string {
+	if len(recommendations) == 0 {
+		return "None found"
+	}
+
+	var result []string
+	for i, rec := range recommendations {
+		recText := fmt.Sprintf("%d. **%s** (Priority: %d)\n   %s", i+1, rec.Description, rec.Priority, rec.Rationale)
+		if rec.CELPattern != "" {
+			recText += fmt.Sprintf("\n   Suggested CEL: `%s`", rec.CELPattern)
+		}
+		result = append(result, recText)
+	}
+
+	return strings.Join(result, "\n\n")
 }
 
 // buildGenerationPrompt creates the LLM prompt for rule generation

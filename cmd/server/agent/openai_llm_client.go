@@ -411,7 +411,7 @@ func (c *OpenAILLMClient) Analyze(ctx context.Context, prompt string, result int
 		return fmt.Errorf("failed to marshal schema: %w", err)
 	}
 
-	fmt.Printf("DEBUG: Generated JSON Schema:\n%s\n", string(schemaJSON))
+	// fmt.Printf("DEBUG: Generated JSON Schema:\n%s\n", string(schemaJSON))
 
 	// Enhance the prompt with schema information
 	enhancedPrompt := fmt.Sprintf(`%s
@@ -618,6 +618,137 @@ Always respond with valid JSON only, no additional text.`,
 	}
 
 	fmt.Printf("DEBUG: Successfully parsed response into %T\n", result)
+
+	return nil
+}
+
+// AnalyzeWithWebSearch implements the LLMClient interface with web search capability
+func (c *OpenAILLMClient) AnalyzeWithWebSearch(ctx context.Context, prompt string, result interface{}) error {
+	if c.apiKey == "" {
+		return fmt.Errorf("OpenAI API key not configured")
+	}
+
+	fmt.Printf("DEBUG: Analyze invoked with result type: %T\n", result)
+
+	// Build JSON schema for the expected response type
+	schema := c.buildJSONSchema(result)
+	// fmt.Printf("DEBUG: Generated JSON Schema:\n%s\n", c.formatJSON(schema))
+
+	// Create request payload with web search tool enabled
+	requestBody := map[string]interface{}{
+		"model": c.model,
+		"messages": []map[string]interface{}{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+
+		"response_format": map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "response",
+				"schema": schema,
+				"strict": true,
+			},
+		},
+		"temperature": 0.1,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	fmt.Printf("DEBUG: Sending request to OpenAI API...\n")
+
+	// Make the API request
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("DEBUG: Response status: %d\n", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse the OpenAI response
+	var openAIResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.Unmarshal(body, &openAIResp); err != nil {
+		return fmt.Errorf("failed to parse OpenAI response: %w", err)
+	}
+
+	if len(openAIResp.Choices) == 0 {
+		return fmt.Errorf("no choices in OpenAI response")
+	}
+
+	responseContent := openAIResp.Choices[0].Message.Content
+	fmt.Printf("DEBUG: Raw AI response:\n%s\n", responseContent)
+
+	// Check for stream channel in context
+	fmt.Printf("DEBUG: Checking for stream channel in context...\n")
+	if streamCh, ok := ctx.Value("stream").(chan string); ok {
+		fmt.Printf("DEBUG: Found stream channel, sending response\n")
+		select {
+		case streamCh <- responseContent:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	} else {
+		fmt.Printf("DEBUG: No stream channel in context\n")
+	}
+
+	fmt.Printf("DEBUG: Token usage - Prompt: %d, Completion: %d, Total: %d\n",
+		openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, openAIResp.Usage.TotalTokens)
+
+	// Try to unmarshal the response content directly
+	responseBytes := []byte(responseContent)
+	fmt.Printf("DEBUG: Direct unmarshal failed: %v\n", json.Unmarshal(responseBytes, result))
+
+	// Try sanitizing the response
+	fmt.Printf("DEBUG: Attempting to sanitize response...\n")
+	sanitizedResponse, err := c.sanitizeResponse(responseBytes, result)
+	if err != nil {
+		return fmt.Errorf("failed to sanitize response: %w", err)
+	}
+
+	fmt.Printf("DEBUG: Sanitized response:\n%s\n", string(sanitizedResponse))
+
+	if err := json.Unmarshal(sanitizedResponse, result); err != nil {
+		fmt.Printf("DEBUG: Failed to unmarshal sanitized response: %v\n", err)
+		return fmt.Errorf("failed to parse sanitized AI response: %w", err)
+	}
+
+	fmt.Printf("DEBUG: Successfully parsed response into correct type\n")
 
 	return nil
 }
@@ -1047,4 +1178,13 @@ func (c *OpenAILLMClient) buildFieldSchema(t reflect.Type) map[string]interface{
 	default:
 		return map[string]interface{}{"type": "string"}
 	}
+}
+
+// formatJSON formats a map as pretty-printed JSON string
+func (c *OpenAILLMClient) formatJSON(data map[string]interface{}) string {
+	jsonBytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%+v", data)
+	}
+	return string(jsonBytes)
 }

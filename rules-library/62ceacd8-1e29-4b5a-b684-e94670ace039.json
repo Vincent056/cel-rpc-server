@@ -1,0 +1,67 @@
+{
+  "id":  "62ceacd8-1e29-4b5a-b684-e94670ace039",
+  "name":  "Explicit Service Account for Pods in test-namespace",
+  "description":  "This rule ensures that all Pods in the 'test-namespace' explicitly specify a non-empty serviceAccountName field. Pods outside 'test-namespace' are not affected by this rule. Explicitly setting the serviceAccountName enforces identity best practices and prevents unintentional use of the default service account, supporting Kubernetes security and compliance recommendations.",
+  "expression":  "pods.items.all(p, p.metadata.namespace != 'test-namespace' || (has(p.spec.serviceAccountName) && p.spec.serviceAccountName != ''))",
+  "inputs":  [
+    {
+      "name":  "pods",
+      "kubernetes":  {
+        "version":  "v1",
+        "resource":  "pods"
+      }
+    }
+  ],
+  "tags":  [
+    "generated",
+    "ai-assisted"
+  ],
+  "category":  "security",
+  "severity":  "medium",
+  "test_cases":  [
+    {
+      "id":  "test-1",
+      "name":  "Valid pods with service accounts",
+      "description":  "All pods in 'test-namespace' have non-empty serviceAccountName fields.",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod1\",\"namespace\":\"test-namespace\"},\"spec\":{\"serviceAccountName\":\"sa1\"}},{\"metadata\":{\"name\":\"pod2\",\"namespace\":\"test-namespace\"},\"spec\":{\"serviceAccountName\":\"sa2\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-2",
+      "name":  "Invalid - pod with empty service account",
+      "description":  "One pod in 'test-namespace' has an empty serviceAccountName.",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod1\",\"namespace\":\"test-namespace\"},\"spec\":{\"serviceAccountName\":\"\"}}]}"
+      }
+    },
+    {
+      "id":  "test-3",
+      "name":  "Pods in other namespaces",
+      "description":  "Pods outside 'test-namespace' are ignored by this rule.",
+      "test_data":  {
+        "pods":  "{\"items\":[{\"metadata\":{\"name\":\"pod3\",\"namespace\":\"dev\"},\"spec\":{}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-4",
+      "name":  "Empty pod list",
+      "description":  "No pods present in the cluster.",
+      "test_data":  {
+        "pods":  "{\"items\":[]}"
+      },
+      "expected_result":  true
+    }
+  ],
+  "metadata":  {
+    "platforms":  [
+      "kubernetes"
+    ]
+  },
+  "created_at":  "1754576142",
+  "updated_at":  "1754576142",
+  "created_by":  "chat-ui",
+  "last_modified_by":  "chat-ui"
+}

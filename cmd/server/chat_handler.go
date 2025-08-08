@@ -16,9 +16,10 @@ import (
 
 // ChatHandler handles chat assistance requests
 type ChatHandler struct {
-	coordinator *agent.Coordinator
-	server      *CELValidationServer
-	llmClient   agent.LLMClient
+	coordinator    *agent.Coordinator
+	server         *CELValidationServer
+	llmClient      agent.LLMClient
+	enhancedIntentAnalyzer *agent.EnhancedIntentAnalyzer
 }
 
 // ValidationServiceWrapper provides validation to agents
@@ -94,6 +95,9 @@ func NewChatHandler(server *CELValidationServer) *ChatHandler {
 	openAIKey := os.Getenv("OPENAI_API_KEY")
 	if openAIKey != "" {
 		handler.llmClient = agent.NewOpenAILLMClient(openAIKey)
+		// Initialize enhanced intent analyzer with OpenAI web search-powered information gathering
+		informationGatherer := agent.NewOpenAIWebSearchGatherer(handler.llmClient)
+		handler.enhancedIntentAnalyzer = agent.NewEnhancedIntentAnalyzer(handler.llmClient, informationGatherer)
 
 		// Create validation service wrapper
 		validationService := &ValidationServiceWrapper{server: server}
@@ -160,8 +164,12 @@ func (h *ChatHandler) HandleChatAssist(
 		time.Sleep(300 * time.Millisecond) // Small delay for effect
 	}
 
-	// Create a comprehensive task from the request
-	task := h.createTaskFromRequest(req.Msg)
+	// Create a comprehensive task from the request using AI-driven intent analysis
+	task, err := h.createTaskFromRequest(ctx, req.Msg)
+	if err != nil {
+		log.Printf("[ChatHandler] ERROR: Failed to create task: %v", err)
+		return h.sendError(stream, err)
+	}
 	log.Printf("[ChatHandler] Created task: ID=%s, Type=%s, Message=%s", task.ID, task.Type, req.Msg.Message)
 
 	// Add streaming context
@@ -360,8 +368,107 @@ func (h *ChatHandler) processAgentUpdates(ctx context.Context, taskID string, st
 	}
 }
 
-// createTaskFromRequest creates a task from the chat request
-func (h *ChatHandler) createTaskFromRequest(msg *celv1.ChatAssistRequest) *agent.Task {
+// createTaskFromRequest creates a task from the chat request using AI-driven intent analysis
+func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.ChatAssistRequest) (*agent.Task, error) {
+	// Package all request data for AI analysis
+	input := map[string]interface{}{
+		"message":         msg.Message,
+		"conversation_id": msg.ConversationId,
+	}
+
+	// Build context for intent analysis
+	analysisContext := make(map[string]interface{})
+
+	// Add context-specific information
+	switch context := msg.Context.(type) {
+	case *celv1.ChatAssistRequest_RuleContext:
+		input["rule_context"] = context.RuleContext
+		analysisContext["context_type"] = "rule_generation"
+		analysisContext["has_rule_context"] = true
+		if context.RuleContext != nil {
+			// Add available rule context fields
+			analysisContext["has_rule_data"] = true
+		}
+
+	case *celv1.ChatAssistRequest_TestContext:
+		input["test_context"] = context.TestContext
+		analysisContext["context_type"] = "test_validation"
+		analysisContext["has_test_context"] = true
+		if context.TestContext != nil {
+			// Add available test context fields
+			analysisContext["has_test_data"] = true
+		}
+
+	case *celv1.ChatAssistRequest_ModificationContext:
+		input["modification_context"] = context.ModificationContext
+		analysisContext["context_type"] = "rule_modification"
+		analysisContext["has_modification_context"] = true
+		if context.ModificationContext != nil {
+			// Add available modification context fields
+			analysisContext["has_modification_data"] = true
+		}
+
+	default:
+		analysisContext["context_type"] = "general"
+		analysisContext["has_specific_context"] = false
+	}
+
+	// Use AI intent analysis to determine task properties
+	if h.enhancedIntentAnalyzer == nil {
+		// Fallback to default behavior if no intent analyzer available
+		log.Printf("[ChatHandler] No intent analyzer available, using default task creation")
+		return h.createTaskFromRequestFallback(msg), nil
+	}
+
+	// Analyze intent using AI with research capabilities
+	analysisResult, err := h.enhancedIntentAnalyzer.AnalyzeIntentWithResearch(ctx, msg.Message, analysisContext)
+	if err != nil {
+		log.Printf("[ChatHandler] Intent analysis failed: %v, using fallback", err)
+		return h.createTaskFromRequestFallback(msg), nil
+	}
+
+	// Extract enhanced intent and analyzed context from result
+	enhancedIntent := analysisResult.EnhancedIntent
+	analyzedContext := analysisResult.AnalyzedContext
+
+	// Create task based on AI-analyzed intent
+	task := &agent.Task{
+		ID:        agent.GenerateTaskID(),
+		Priority:  h.determinePriorityFromIntent(enhancedIntent.Intent),
+		Context:   make(map[string]interface{}),
+		CreatedAt: time.Now(),
+		Type:      h.determineTaskTypeFromIntent(enhancedIntent.Intent),
+	}
+
+	// Add enhanced intent analysis results to task context
+	task.Context["ai_intent"] = enhancedIntent.Intent
+	task.Context["enhanced_intent"] = enhancedIntent
+	task.Context["intent_confidence"] = enhancedIntent.Intent.Confidence
+	task.Context["intent_type"] = enhancedIntent.Intent.Type
+	task.Context["requires_research"] = enhancedIntent.RequiresResearch
+	task.Context["research_phase"] = enhancedIntent.ResearchPhase
+
+	// Add analyzed context with research findings if available
+	if analyzedContext != nil {
+		task.Context["analyzed_context"] = analyzedContext
+		log.Printf("[ChatHandler] Added analyzed context with %d rule recommendations to task", len(analyzedContext.RecommendedRules))
+	}
+
+	// Merge original analysis context
+	for k, v := range analysisContext {
+		task.Context[k] = v
+	}
+
+	task.Input = input
+
+	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s", 
+		enhancedIntent.Intent.Type, enhancedIntent.Intent.Confidence, enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
+
+	return task, nil
+}
+
+// createTaskFromRequestFallback creates a task using the original hardcoded logic as fallback
+func (h *ChatHandler) createTaskFromRequestFallback(msg *celv1.ChatAssistRequest) *agent.Task {
 	task := &agent.Task{
 		ID:        agent.GenerateTaskID(),
 		Priority:  10,
@@ -376,7 +483,7 @@ func (h *ChatHandler) createTaskFromRequest(msg *celv1.ChatAssistRequest) *agent
 		"conversation_id": msg.ConversationId,
 	}
 
-	// Add context-specific information
+	// Add context-specific information using original logic
 	switch context := msg.Context.(type) {
 	case *celv1.ChatAssistRequest_RuleContext:
 		input["rule_context"] = context.RuleContext
@@ -399,6 +506,78 @@ func (h *ChatHandler) createTaskFromRequest(msg *celv1.ChatAssistRequest) *agent
 
 	task.Input = input
 	return task
+}
+
+// determinePriorityFromIntent determines task priority based on AI-analyzed intent
+func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
+	// Base priority on confidence and intent type
+	basePriority := 5
+	
+	// Higher confidence gets higher priority
+	confidenceBonus := int(intent.Confidence * 5) // 0-5 bonus
+	
+	// Certain intent types get priority boosts
+	switch intent.Type {
+	case "rule_generation":
+		basePriority = 8
+	case "validation", "compliance_check":
+		basePriority = 9
+	case "optimization":
+		basePriority = 7
+	case "test_generation":
+		basePriority = 6
+	case "discovery", "analysis":
+		basePriority = 5
+	default:
+		basePriority = 5
+	}
+	
+	priority := basePriority + confidenceBonus
+	if priority > 10 {
+		priority = 10
+	}
+	if priority < 1 {
+		priority = 1
+	}
+	
+	return priority
+}
+
+// determineTaskTypeFromIntent maps AI-analyzed intent to agent task types
+func (h *ChatHandler) determineTaskTypeFromIntent(intent *agent.Intent) agent.TaskType {
+	// Map intent types to task types
+	switch intent.Type {
+	case "rule_generation", "create_rule", "generate_rule":
+		return agent.TaskTypeRuleGeneration
+	case "validation", "validate_rule", "check_rule":
+		return agent.TaskTypeValidation
+	case "test_generation", "create_test", "generate_test":
+		return agent.TaskTypeTestGeneration
+	case "optimization", "optimize_rule", "improve_rule":
+		return agent.TaskTypeOptimization
+	case "documentation", "document_rule", "explain_rule":
+		return agent.TaskTypeDocumentation
+	case "compliance_check", "compliance_mapping":
+		return agent.TaskTypeCompliance
+	case "analysis", "analyze", "discovery":
+		// For analysis tasks, check suggested tasks to determine the best fit
+		if len(intent.SuggestedTasks) > 0 {
+			// Use the highest priority suggested task type
+			highestPriority := 0
+			bestTaskType := agent.TaskTypeRuleGeneration
+			for _, suggestedTask := range intent.SuggestedTasks {
+				if suggestedTask.Priority > highestPriority {
+					highestPriority = suggestedTask.Priority
+					bestTaskType = suggestedTask.Type
+				}
+			}
+			return bestTaskType
+		}
+		return agent.TaskTypeRuleGeneration
+	default:
+		// Default to rule generation for unknown intent types
+		return agent.TaskTypeRuleGeneration
+	}
 }
 
 // convertResultToResponse converts a task result to a chat response
@@ -462,7 +641,7 @@ func (h *ChatHandler) createStatusMessage(message, status string) *celv1.ChatAss
 	// Get current agent schedule information
 	scheduleInfo := h.getAgentScheduleInfo()
 	enhancedMessage := fmt.Sprintf("%s\n\n📊 **Agent Status:**\n%s", message, scheduleInfo)
-	
+
 	return &celv1.ChatAssistResponse{
 		Content: &celv1.ChatAssistResponse_Text{
 			Text: &celv1.TextMessage{
@@ -482,7 +661,7 @@ func (h *ChatHandler) createProgressMessage(message string) *celv1.ChatAssistRes
 	if currentTaskInfo != "" {
 		enhancedMessage = fmt.Sprintf("%s\n\n🎯 **Current Task:**\n%s", message, currentTaskInfo)
 	}
-	
+
 	return &celv1.ChatAssistResponse{
 		Content: &celv1.ChatAssistResponse_Text{
 			Text: &celv1.TextMessage{
@@ -530,16 +709,16 @@ func (h *ChatHandler) getAgentScheduleInfo() string {
 	if h.coordinator == nil {
 		return ""
 	}
-	
+
 	// Get executor status
 	executor := h.coordinator.GetExecutor()
 	if executor == nil {
 		return "Agent system not available"
 	}
-	
+
 	// Determine system status based on available public information
 	status := "🟢 Active"
-	
+
 	// Try to get an agent to test if system is working
 	testTask := &agent.Task{
 		ID:   "status-check",
@@ -551,12 +730,12 @@ func (h *ChatHandler) getAgentScheduleInfo() string {
 		caps := agent.GetCapabilities()
 		agentInfo = fmt.Sprintf("Agents available with %d capabilities", len(caps))
 	}
-	
+
 	return fmt.Sprintf(
-		"• **Agent System:** %s\n" +
-		"• **Task Executor:** Available\n" +
-		"• **Worker Pool:** 5 workers ready\n" +
-		"• **Agents:** %s",
+		"• **Agent System:** %s\n"+
+			"• **Task Executor:** Available\n"+
+			"• **Worker Pool:** 5 workers ready\n"+
+			"• **Agents:** %s",
 		status, agentInfo)
 }
 
@@ -565,17 +744,17 @@ func (h *ChatHandler) getCurrentTaskInfo() string {
 	if h.coordinator == nil {
 		return ""
 	}
-	
+
 	// Use available public information about task execution
 	executor := h.coordinator.GetExecutor()
 	if executor == nil {
 		return "No task executor available"
 	}
-	
+
 	// Check for different agent types by testing what agents can handle different task types
 	availableAgentTypes := make([]string, 0)
 	taskTypes := []string{"rule_generation", "validation", "compliance"}
-	
+
 	for _, taskType := range taskTypes {
 		testTask := &agent.Task{
 			ID:   "capability-check",
@@ -588,15 +767,15 @@ func (h *ChatHandler) getCurrentTaskInfo() string {
 			}
 		}
 	}
-	
+
 	agentTypesStr := "No specialized agents"
 	if len(availableAgentTypes) > 0 {
 		agentTypesStr = fmt.Sprintf("%d agent types: %v", len(availableAgentTypes), availableAgentTypes)
 	}
-	
+
 	return fmt.Sprintf(
-		"• **Task Processing:** Multi-agent execution ready\n" +
-		"• **Worker Pool:** 5 concurrent workers available\n" +
-		"• **Coordination:** Real-time task distribution\n" +
-		"• **Available Agents:** %s", agentTypesStr)
+		"• **Task Processing:** Multi-agent execution ready\n"+
+			"• **Worker Pool:** 5 concurrent workers available\n"+
+			"• **Coordination:** Real-time task distribution\n"+
+			"• **Available Agents:** %s", agentTypesStr)
 }

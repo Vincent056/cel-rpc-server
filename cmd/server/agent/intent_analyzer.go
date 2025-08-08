@@ -14,6 +14,7 @@ type IntentAnalyzer struct {
 // LLMClient interface for language model interactions
 type LLMClient interface {
 	Analyze(ctx context.Context, prompt string, schema interface{}) error
+	AnalyzeWithWebSearch(ctx context.Context, prompt string, schema interface{}) error
 }
 
 // Intent represents analyzed user intent

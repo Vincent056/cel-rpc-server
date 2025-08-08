@@ -1,0 +1,86 @@
+{
+  "id":  "91ca3966-4530-43f7-aeb5-b9e5cce58a55",
+  "name":  "Restrict JSONPatch Patching Annotations on HyperConverged Resources",
+  "description":  "This rule ensures that no HyperConverged resource includes any of the forbidden JSONPatch annotation keys. It passes if none of the specified annotation keys exist in the annotations map (or if the annotations field is not present at all).",
+  "expression":  "hyperconverged.items.all(hc, !has(hc.metadata.annotations.kubevirt.kubevirt.io/jsonpatch) && !has(hc.metadata.annotations.containerizeddataimporter.kubevirt.io/jsonpatch) && !has(hc.metadata.annotations.networkaddonsconfigs.kubevirt.io/jsonpatch) && !has(hc.metadata.annotations.ssp.kubevirt.io/jsonpatch))",
+  "inputs":  [
+    {
+      "name":  "hyperconverged",
+      "kubernetes":  {
+        "group":  "hco.kubevirt.io",
+        "version":  "v1beta1",
+        "resource":  "hyperconvergeds",
+        "namespace":  "openshift-cnv"
+      }
+    }
+  ],
+  "tags":  [
+    "generated",
+    "ai-assisted"
+  ],
+  "category":  "security",
+  "severity":  "medium",
+  "test_cases":  [
+    {
+      "id":  "test-1",
+      "name":  "Valid - No patching annotations present",
+      "description":  "A HyperConverged resource with no patching annotations passes the rule.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[{\"metadata\":{\"annotations\":{\"description\":\"standard config\"},\"name\":\"kubevirt-hyperconverged\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-2",
+      "name":  "Valid - No annotations field at all",
+      "description":  "A HyperConverged resource with no annotations field passes the rule.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[{\"metadata\":{\"name\":\"kubevirt-hyperconverged\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-3",
+      "name":  "Invalid - kubevirt.kubevirt.io/jsonpatch annotation present",
+      "description":  "A HyperConverged resource with the forbidden patching annotation fails the rule.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[{\"metadata\":{\"annotations\":{\"kubevirt.kubevirt.io/jsonpatch\":\"[{\\\"op\\\": \\\"add\\\", \\\"path\\\": \\\"/spec/featureGates\\\", \\\"value\\\": [\\\"Experimental\\\"]}]\"},\"name\":\"kubevirt-hyperconverged\"}}]}"
+      }
+    },
+    {
+      "id":  "test-4",
+      "name":  "Invalid - containerizeddataimporter.kubevirt.io/jsonpatch annotation present",
+      "description":  "A HyperConverged resource with a forbidden CDI patching annotation fails the rule.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[{\"metadata\":{\"annotations\":{\"containerizeddataimporter.kubevirt.io/jsonpatch\":\"[{\\\"op\\\": \\\"replace\\\", \\\"path\\\": \\\"/spec/config\\\", \\\"value\\\": {}}]\"},\"name\":\"kubevirt-hyperconverged\"}}]}"
+      }
+    },
+    {
+      "id":  "test-5",
+      "name":  "Valid - Other unrelated annotations present",
+      "description":  "A HyperConverged resource with only unrelated annotations passes the rule.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[{\"metadata\":{\"annotations\":{\"foo.bar/baz\":\"qux\"},\"name\":\"kubevirt-hyperconverged\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "id":  "test-6",
+      "name":  "Edge Case - Empty items",
+      "description":  "No HyperConverged resources present, rule passes by default.",
+      "test_data":  {
+        "hyperconverged":  "{\"items\":[]}"
+      },
+      "expected_result":  true
+    }
+  ],
+  "metadata":  {
+    "platforms":  [
+      "kubernetes"
+    ]
+  },
+  "created_at":  "1754593912",
+  "updated_at":  "1754593912",
+  "created_by":  "chat-ui",
+  "last_modified_by":  "chat-ui"
+}
