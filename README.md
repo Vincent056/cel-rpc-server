@@ -21,15 +21,17 @@ The easiest way to run the CEL RPC server is using the pre-built container image
 
 ```bash
 # Pull the image
-podman pull ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+podman pull ghcr.io/vincent056/cel-rpc-server
 
 # Run with OpenAI (default)
-podman run -d \
+podman run \
   --name cel-rpc-server \
   -p 8349:8349 \
   -e OPENAI_API_KEY=your-openai-api-key \
-  -v ~/.kube/config:/root/.kube/config:ro \
-  ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  --replace \
+  ghcr.io/vincent056/cel-rpc-server
 
 # Run with Gemini
 podman run -d \
@@ -37,8 +39,9 @@ podman run -d \
   -p 8349:8349 \
   -e AI_PROVIDER=gemini \
   -e GEMINI_API_KEY=your-gemini-api-key \
-  -v ~/.kube/config:/root/.kube/config:ro \
-  ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
 
 # Run with local Ollama
 podman run -d \
@@ -49,9 +52,16 @@ podman run -d \
   -e CUSTOM_AI_ENDPOINT=http://localhost:11434/api/generate \
   -e CUSTOM_AI_MODEL=llama2:7b \
   -e DISABLE_INFORMATION_GATHERING=true \
-  -v ~/.kube/config:/root/.kube/config:ro \
-  ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
 ```
+
+**Volume Mounts:**
+- `~/.kube/config:/KUBECONFIG/kubeconfig` - Mounts your Kubernetes config for cluster access
+- `./rules-library:/home/celuser/app/rules-library` - Mounts local rules directory for custom CEL rules
+
+**Note:** The `:Z` flag in Podman volume mounts is for SELinux contexts. If you encounter permission issues, ensure your kubeconfig file is readable by the container user (UID 1001).
 
 #### With Docker
 
@@ -59,15 +69,16 @@ Simply replace `podman` with `docker` in the above commands:
 
 ```bash
 # Pull the image
-docker pull ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+docker pull ghcr.io/vincent056/cel-rpc-server
 
 # Run with OpenAI
 docker run -d \
   --name cel-rpc-server \
   -p 8349:8349 \
   -e OPENAI_API_KEY=your-openai-api-key \
-  -v ~/.kube/config:/root/.kube/config:ro \
-  ghcr.io/vincent056/cel-rpc-server:sha-c6c6a044e22a0b17b660d73524914d3036b8093f
+  -v ~/.kube/config:/KUBECONFIG/kubeconfig:ro \
+  -v ./rules-library:/home/celuser/app/rules-library:ro \
+  ghcr.io/vincent056/cel-rpc-server
 ```
 
 ### Option 2: Building and Running Locally
@@ -114,13 +125,28 @@ export DISABLE_INFORMATION_GATHERING=true
 
 ## Configuration
 
+### Rules Library
+
+The server looks for CEL rule definitions in the `./rules-library` directory. When running in a container, mount your local rules directory:
+
+```bash
+# Create rules directory if it doesn't exist
+mkdir -p ./rules-library
+
+# Mount when running container
+-v ./rules-library:/home/celuser/app/rules-library:Z  # Podman
+-v ./rules-library:/home/celuser/app/rules-library:ro  # Docker
+```
+
+Rules should be in YAML format. See the [rules-library](./rules-library) directory for examples.
+
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AI_PROVIDER` | AI provider to use: `openai`, `gemini`, `custom` | `openai` |
 | `OPENAI_API_KEY` | OpenAI API key (when using OpenAI) | - |
-| `OPENAI_MODEL` | OpenAI model to use | `gpt-4` |
+| `OPENAI_MODEL` | OpenAI model to use | `gpt-4.1` |
 | `GEMINI_API_KEY` | Google Gemini API key (when using Gemini) | - |
 | `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
 | `CUSTOM_AI_ENDPOINT` | Custom AI endpoint URL | - |
@@ -135,7 +161,7 @@ export DISABLE_INFORMATION_GATHERING=true
 ```bash
 export AI_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-4  # or gpt-3.5-turbo for faster responses
+export OPENAI_MODEL=gpt-4.1
 ```
 
 #### Google Gemini (Cloud)
@@ -268,6 +294,34 @@ docker build -t cel-rpc-server .
 ```bash
 go test ./...
 ```
+
+## Troubleshooting
+
+### Permission Denied Errors
+
+If you encounter "permission denied" errors when mounting kubeconfig:
+
+1. **With Podman**: Ensure you use the `:Z` flag for SELinux contexts:
+   ```bash
+   -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z
+   ```
+
+2. **File Permissions**: The container runs as user ID 1001. Ensure your kubeconfig is readable:
+   ```bash
+   chmod 644 ~/.kube/config
+   ```
+
+3. **Alternative Mount**: If issues persist, you can copy the kubeconfig into the container:
+   ```bash
+   podman cp ~/.kube/config cel-rpc-server:/KUBECONFIG/kubeconfig
+   podman exec cel-rpc-server chown celuser:celuser /KUBECONFIG/kubeconfig
+   ```
+
+### Connection Issues
+
+- Ensure the server is listening on the correct port (default: 8349)
+- Check container logs: `podman logs cel-rpc-server`
+- Verify your Kubernetes cluster is accessible from within the container
 
 ## License
 

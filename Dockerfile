@@ -22,15 +22,31 @@ FROM registry.access.redhat.com/ubi9/ubi:latest
 # Copy binary from the builder stage
 COPY --from=builder /cel-rpc-server /usr/local/bin/cel-rpc-server
 
+# Create a non-root user to run the application
+RUN useradd -u 1001 -m -s /bin/bash celuser
+
 # Expose the RPC & MCP ports
-# Premake the KUBECONFIG file
-RUN mkdir -p /KUBECONFIG
-RUN touch /KUBECONFIG/kubeconfig
+# Premake the KUBECONFIG directory with proper permissions
+RUN mkdir -p /KUBECONFIG && \
+    touch /KUBECONFIG/kubeconfig && \
+    chown -R celuser:celuser /KUBECONFIG && \
+    chmod 755 /KUBECONFIG && \
+    chmod 600 /KUBECONFIG/kubeconfig
+
 # Make sure KUBECONFIG is set
 ENV KUBECONFIG=/KUBECONFIG/kubeconfig
-# Update the permissions of the KUBECONFIG file
-RUN chmod 600 /KUBECONFIG/kubeconfig
 ENV OPENAI_API_KEY=
+
+# Create working directory for the application and rules library
+RUN mkdir -p /home/celuser/app && \
+    mkdir -p /home/celuser/app/rules-library && \
+    chown -R celuser:celuser /home/celuser/app
+
+# Switch to non-root user
+USER celuser
+
+# Set working directory
+WORKDIR /home/celuser/app
 
 EXPOSE 8349
 
