@@ -194,7 +194,7 @@ func (o *OpenAIWebSearchGatherer) extractCitedText(fullText string, citation Web
 
 // AnalyzeDocuments processes gathered documents to extract actionable insights
 func (o *OpenAIWebSearchGatherer) AnalyzeDocuments(ctx context.Context, documents []DocumentResult, intent *EnhancedIntent) (*AnalyzedContext, error) {
-	log.Printf("[OpenAIWebSearchGatherer] Analyzing %d documents for intent: %s", len(documents), intent.Type)
+	log.Printf("[OpenAIWebSearchGatherer] Analyzing %d documents for intent: %s", len(documents), intent.PrimaryIntent)
 
 	// Combine all document content with source attribution
 	var allContent strings.Builder
@@ -249,7 +249,7 @@ Response format:
     "sources_found": %d,
     "documentation_urls": [%s]
   }
-}`, intent.Type, intent.Confidence, intent.InformationNeeds, allContent.String(),
+}`, intent.PrimaryIntent, intent.Confidence, intent.InformationNeeds, allContent.String(),
 		len(documents), o.buildSourceURLsList(documents))
 
 	var analyzedContext AnalyzedContext

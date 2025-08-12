@@ -294,7 +294,6 @@ func (h *ChatHandler) HandleChatAssist(
 	thinkingMessages := []string{
 		"🤔 Understanding your request...",
 		"🔍 Analyzing requirements...",
-		"🧠 Preparing AI agents...",
 	}
 
 	for _, msg := range thinkingMessages {
@@ -315,9 +314,99 @@ func (h *ChatHandler) HandleChatAssist(
 	task, err := h.createTaskFromRequest(ctx, req.Msg)
 	if err != nil {
 		log.Printf("[ChatHandler] ERROR: Failed to create task: %v", err)
+
+		// Check if this is a "needs more information" error
+		if strings.Contains(err.Error(), "provide details") || strings.Contains(err.Error(), "more information") {
+			// Send a clarification question instead of an error
+			questionMsg := h.createQuestionMessage(
+				err.Error(),
+				[]string{
+					"Create a Kubernetes pod security rule",
+					"Check for resource limits in deployments",
+					"Validate namespace has network policies",
+					"Ensure containers run as non-root",
+				},
+				"I need more specific information to generate the right rule for you",
+				celv1.QuestionType_QUESTION_TYPE_CLARIFICATION,
+			)
+			if sendErr := stream.Send(questionMsg); sendErr != nil {
+				return sendErr
+			}
+			return nil
+		}
+
 		return h.sendError(stream, err)
 	}
 	log.Printf("[ChatHandler] Created task: ID=%s, Type=%s, Message=%s", task.ID, task.Type, req.Msg.Message)
+
+	// Check if this is a clarification task
+	if task.Type == "clarification_needed" {
+		// Send clarification question directly
+		clarificationMsg, _ := task.Context["clarification_message"].(string)
+		if clarificationMsg == "" {
+			clarificationMsg = "I need more information to help you. Could you please provide more details about what kind of rule you want to create?"
+		}
+
+		// Get information needs from intent analysis
+		infoNeeds, _ := task.Context["information_needs"].([]string)
+
+		// Determine suggested options based on the message and information needs
+		var options []string
+
+		// If we have specific information needs, create targeted suggestions
+		if len(infoNeeds) > 0 {
+			// Add a message about what information is needed
+			clarificationMsg += "\n\nSpecifically, I need to know:"
+			for _, need := range infoNeeds {
+				clarificationMsg += "\n• " + need
+			}
+		}
+
+		// Check what metadata we already have to provide better suggestions
+		originalIntent, _ := task.Context["original_intent"].(*agent.Intent)
+		var userPrompt string
+		if originalIntent != nil && originalIntent.Metadata.UserInitialPrompt != "" {
+			userPrompt = originalIntent.Metadata.UserInitialPrompt
+		}
+
+		// Provide targeted suggestions based on what's missing
+		if userPrompt != "" {
+			// Try to understand what the user might want based on their vague request
+			if strings.Contains(strings.ToLower(userPrompt), "check") || strings.Contains(strings.ToLower(userPrompt), "validate") {
+				clarificationMsg += "\n\nI see you want to check or validate something. Please specify:"
+				clarificationMsg += "\n• What resource type (Pod, Deployment, Service, etc.)?"
+				clarificationMsg += "\n• What condition should be checked?"
+				clarificationMsg += "\n• What platform (Kubernetes, OpenShift, etc.)?"
+			}
+		}
+
+		// Provide example suggestions based on common use cases
+		if len(options) == 0 {
+			options = []string{
+				"Create a rule to ensure Kubernetes pods have resource limits defined",
+				"Check if all deployments have at least 2 replicas for high availability",
+				"Validate that pods don't run as root user for security",
+				"Ensure all namespaces have network policies defined",
+				"Check that containers don't use 'latest' image tags",
+				"Verify pods use explicit service accounts (not default)",
+				"Validate that persistent volumes have proper access modes",
+				"Check if services have proper selectors defined",
+			}
+		}
+
+		questionMsg := h.createQuestionMessage(
+			clarificationMsg,
+			options,
+			"I need more specific information to generate the right rule for you",
+			celv1.QuestionType_QUESTION_TYPE_CLARIFICATION,
+		)
+
+		if err := stream.Send(questionMsg); err != nil {
+			return err
+		}
+
+		return nil
+	}
 
 	// Add streaming context
 	streamChan := make(chan interface{}, 100)
@@ -380,6 +469,50 @@ func (h *ChatHandler) HandleChatAssist(
 					}); err != nil {
 						return err
 					}
+				}
+			}
+
+			// Handle question messages from agents
+			if question, ok := v["question"].(map[string]interface{}); ok {
+				questionText, _ := question["text"].(string)
+				options, _ := question["options"].([]string)
+				context, _ := question["context"].(string)
+				questionTypeStr, _ := question["type"].(string)
+
+				// Map question type string to enum
+				questionType := celv1.QuestionType_QUESTION_TYPE_UNSPECIFIED
+				switch questionTypeStr {
+				case "clarification":
+					questionType = celv1.QuestionType_QUESTION_TYPE_CLARIFICATION
+				case "confirmation":
+					questionType = celv1.QuestionType_QUESTION_TYPE_CONFIRMATION
+				case "choice":
+					questionType = celv1.QuestionType_QUESTION_TYPE_CHOICE
+				case "additional_info":
+					questionType = celv1.QuestionType_QUESTION_TYPE_ADDITIONAL_INFO
+				}
+
+				if err := stream.Send(h.createQuestionMessage(questionText, options, context, questionType)); err != nil {
+					return err
+				}
+			}
+
+			// Handle clarification needed messages from agents
+			if clarification, ok := v["clarification_needed"].(map[string]interface{}); ok {
+				message, _ := clarification["message"].(string)
+				options, _ := clarification["suggestions"].([]string)
+
+				if message == "" {
+					message = "I need more specific information to generate the rule you want. Could you provide more details?"
+				}
+
+				if err := stream.Send(h.createQuestionMessage(
+					message,
+					options,
+					"Please provide more specific details about your requirements",
+					celv1.QuestionType_QUESTION_TYPE_CLARIFICATION,
+				)); err != nil {
+					return err
 				}
 			}
 
@@ -523,8 +656,86 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 		"conversation_id": msg.ConversationId,
 	}
 
+	// Add conversation history to input if available
+	if len(msg.PreviousMessages) > 0 {
+		input["previous_messages"] = msg.PreviousMessages
+	}
+
+	// Add existing rule to input if available
+	if msg.ExistingRule != nil {
+		input["existing_rule"] = msg.ExistingRule
+	}
+
 	// Build context for intent analysis
 	analysisContext := make(map[string]interface{})
+
+	// Analyze conversation history for context
+	if len(msg.PreviousMessages) > 0 {
+		analysisContext["has_conversation_history"] = true
+		analysisContext["previous_message_count"] = len(msg.PreviousMessages)
+
+		// Check if the last message was a question from the assistant
+		if len(msg.PreviousMessages) > 0 {
+			lastMsg := msg.PreviousMessages[len(msg.PreviousMessages)-1]
+			// Look for question indicators in the last assistant message
+			if lastMsg.Role == "assistant" && strings.Contains(strings.ToLower(lastMsg.Content), "?") {
+				// Check for clarification keywords
+				clarificationKeywords := []string{"please specify", "need to know", "could you provide", "what kind of", "which resource", "what platform"}
+				for _, keyword := range clarificationKeywords {
+					if strings.Contains(strings.ToLower(lastMsg.Content), keyword) {
+						analysisContext["is_answering_clarification"] = true
+						analysisContext["previous_question"] = lastMsg.Content
+						break
+					}
+				}
+			}
+		}
+
+		// Look for recently generated rules in conversation
+		var lastGeneratedRule *celv1.GeneratedRule
+		for i := len(msg.PreviousMessages) - 1; i >= 0; i-- {
+			prevMsg := msg.PreviousMessages[i]
+			if prevMsg.Role == "assistant" && prevMsg.Rule != nil {
+				lastGeneratedRule = prevMsg.Rule
+				break
+			}
+		}
+
+		if lastGeneratedRule != nil {
+			analysisContext["has_previous_rule"] = true
+			analysisContext["previous_rule_expression"] = lastGeneratedRule.Expression
+			analysisContext["previous_rule_name"] = lastGeneratedRule.Name
+
+			// Check if user is asking to modify the rule
+			messageLower := strings.ToLower(msg.Message)
+			modificationKeywords := []string{"change", "modify", "update", "fix", "improve", "regenerate", "instead", "but", "different", "adjust"}
+			for _, keyword := range modificationKeywords {
+				if strings.Contains(messageLower, keyword) {
+					analysisContext["likely_modification_request"] = true
+					break
+				}
+			}
+		}
+
+		// Add conversation summary for AI analysis
+		var conversationSummary []string
+		for _, prevMsg := range msg.PreviousMessages {
+			summary := fmt.Sprintf("%s: %s", prevMsg.Role, prevMsg.Content)
+			if len(summary) > 100 {
+				summary = summary[:97] + "..."
+			}
+			conversationSummary = append(conversationSummary, summary)
+		}
+		analysisContext["conversation_summary"] = conversationSummary
+	}
+
+	// Check if an existing rule is provided for modification
+	if msg.ExistingRule != nil {
+		analysisContext["has_existing_rule"] = true
+		analysisContext["existing_rule_id"] = msg.ExistingRule.Id
+		analysisContext["existing_rule_name"] = msg.ExistingRule.Name
+		analysisContext["existing_rule_expression"] = msg.ExistingRule.Expression
+	}
 
 	// Add context-specific information
 	switch context := msg.Context.(type) {
@@ -578,6 +789,75 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 	enhancedIntent := analysisResult.EnhancedIntent
 	analyzedContext := analysisResult.AnalyzedContext
 
+	// Check if we need clarification based on multiple factors
+	needsClarification := false
+	clarificationMessage := ""
+
+	// First check if this is an answer to a previous clarification question
+	isAnsweringClarification, _ := analysisContext["is_answering_clarification"].(bool)
+	if isAnsweringClarification {
+		// Don't ask for clarification if user is answering our question
+		// The intent analyzer should have more context now
+		log.Printf("[ChatHandler] User is answering a clarification question, proceeding with intent: %s", enhancedIntent.Intent.PrimaryIntent)
+	} else {
+		// Check type is not_supported
+		if enhancedIntent.Intent.PrimaryIntent == "not_supported" {
+			needsClarification = true
+			clarificationMessage = enhancedIntent.Intent.ErrorMessage
+		}
+
+		// Check for low confidence (below 0.5)
+		if enhancedIntent.Intent.Confidence < 0.5 {
+			needsClarification = true
+			if clarificationMessage == "" {
+				clarificationMessage = fmt.Sprintf("I'm not confident I understand your request (confidence: %.0f%%). %s",
+					enhancedIntent.Intent.Confidence*100, enhancedIntent.Intent.IntentSummary)
+			}
+		}
+	}
+
+	// Check if intent summary indicates missing information
+	summaryLower := strings.ToLower(enhancedIntent.Intent.IntentSummary)
+	missingInfoKeywords := []string{"generic", "lacks context", "missing", "unclear", "vague", "insufficient", "need more", "too broad"}
+	for _, keyword := range missingInfoKeywords {
+		if strings.Contains(summaryLower, keyword) {
+			needsClarification = true
+			if clarificationMessage == "" {
+				clarificationMessage = enhancedIntent.Intent.IntentSummary
+			}
+			break
+		}
+	}
+
+	// Check if there are specific information needs
+	if len(enhancedIntent.Intent.InformationNeeds) > 0 {
+		needsClarification = true
+		if clarificationMessage == "" {
+			clarificationMessage = "To generate an accurate rule, I need more information."
+		}
+	}
+
+	if needsClarification {
+		// Create a special task that will ask for clarification
+		task := &agent.Task{
+			ID:        agent.GenerateTaskID(),
+			Priority:  10,
+			Context:   make(map[string]interface{}),
+			CreatedAt: time.Now(),
+			Type:      "clarification_needed",
+		}
+
+		// Add the error message and intent to context
+		task.Context["needs_clarification"] = true
+		task.Context["clarification_message"] = clarificationMessage
+		task.Context["original_intent"] = enhancedIntent.Intent
+		task.Context["information_needs"] = enhancedIntent.Intent.InformationNeeds
+		task.Context["intent_confidence"] = enhancedIntent.Intent.Confidence
+		task.Input = input
+
+		return task, nil
+	}
+
 	// Create task based on AI-analyzed intent
 	task := &agent.Task{
 		ID:        agent.GenerateTaskID(),
@@ -590,10 +870,21 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 	// Add enhanced intent analysis results to task context
 	task.Context["ai_intent"] = enhancedIntent.Intent
 	task.Context["enhanced_intent"] = enhancedIntent
+	task.Context["intent_summary"] = enhancedIntent.Intent.IntentSummary
+	task.Context["user_provided_metadata"] = enhancedIntent.Intent.Metadata
 	task.Context["intent_confidence"] = enhancedIntent.Intent.Confidence
-	task.Context["intent_type"] = enhancedIntent.Intent.Type
+	task.Context["intent_type"] = enhancedIntent.Intent.PrimaryIntent
 	task.Context["requires_research"] = enhancedIntent.RequiresResearch
 	task.Context["research_phase"] = enhancedIntent.ResearchPhase
+
+	// Add conversation history to task context
+	task.Context["previous_messages"] = msg.PreviousMessages
+	task.Context["conversation_id"] = msg.ConversationId
+
+	// If there's an existing rule, add it to the task context
+	if msg.ExistingRule != nil {
+		task.Context["existing_rule"] = msg.ExistingRule
+	}
 
 	// Add analyzed context with research findings if available
 	if analyzedContext != nil {
@@ -609,8 +900,7 @@ func (h *ChatHandler) createTaskFromRequest(ctx context.Context, msg *celv1.Chat
 	task.Input = input
 
 	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s",
-	log.Printf("[ChatHandler] Enhanced AI Intent Analysis - Type: %s, Confidence: %.2f, Research Required: %v, Phase: %s",
-		enhancedIntent.Intent.Type, enhancedIntent.Intent.Confidence, enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
+		enhancedIntent.Intent.PrimaryIntent, enhancedIntent.Intent.Confidence, enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
 
 	return task, nil
 }
@@ -667,7 +957,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 
 
 	// Certain intent types get priority boosts
-	switch intent.Type {
+	switch intent.PrimaryIntent {
 	case "rule_generation":
 		basePriority = 8
 	case "validation", "compliance_check":
@@ -698,7 +988,7 @@ func (h *ChatHandler) determinePriorityFromIntent(intent *agent.Intent) int {
 // determineTaskTypeFromIntent maps AI-analyzed intent to agent task types
 func (h *ChatHandler) determineTaskTypeFromIntent(intent *agent.Intent) agent.TaskType {
 	// Map intent types to task types
-	switch intent.Type {
+	switch intent.PrimaryIntent {
 	case "rule_generation", "create_rule", "generate_rule":
 		return agent.TaskTypeRuleGeneration
 	case "validation", "validate_rule", "check_rule":
@@ -856,6 +1146,21 @@ func (h *ChatHandler) formatTaskStatus(status agent.TaskStatus) string {
 	}
 }
 
+// createQuestionMessage creates a question message for AI to ask clarification
+func (h *ChatHandler) createQuestionMessage(question string, options []string, context string, questionType celv1.QuestionType) *celv1.ChatAssistResponse {
+	return &celv1.ChatAssistResponse{
+		Content: &celv1.ChatAssistResponse_Question{
+			Question: &celv1.QuestionMessage{
+				Question: question,
+				Options:  options,
+				Context:  context,
+				Type:     questionType,
+			},
+		},
+		Timestamp: time.Now().Unix(),
+	}
+}
+
 // getAgentScheduleInfo returns information about the agent system schedule and status
 func (h *ChatHandler) getAgentScheduleInfo() string {
 	if h.coordinator == nil {
@@ -927,7 +1232,5 @@ func (h *ChatHandler) getCurrentTaskInfo() string {
 
 	return fmt.Sprintf(
 		"• **Task Processing:** Multi-agent execution ready\n"+
-			"• **Worker Pool:** 5 concurrent workers available\n"+
-			"• **Coordination:** Real-time task distribution\n"+
 			"• **Available Agents:** %s", agentTypesStr)
 }

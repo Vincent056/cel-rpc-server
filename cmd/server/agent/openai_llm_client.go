@@ -400,6 +400,7 @@ func (c *OpenAILLMClient) Analyze(ctx context.Context, prompt string, result int
 
 	// Always enable debug logging
 	fmt.Printf("DEBUG: Analyze invoked with result type: %T\n", result)
+	fmt.Printf("DEBUG: Analyze invoked with result: %v\n", result)
 
 	// Build JSON schema from the result type - we'll include it in the prompt instead
 	jsonSchema := c.buildJSONSchema(result)

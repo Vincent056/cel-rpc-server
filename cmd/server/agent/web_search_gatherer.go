@@ -22,19 +22,19 @@ type WebSearchResult struct {
 
 // DuckDuckGoSearchResponse represents DuckDuckGo Instant Answer API response
 type DuckDuckGoSearchResponse struct {
-	Abstract     string `json:"Abstract"`
-	AbstractText string `json:"AbstractText"`
-	AbstractURL  string `json:"AbstractURL"`
-	Answer       string `json:"Answer"`
-	AnswerType   string `json:"AnswerType"`
-	Definition   string `json:"Definition"`
-	Entity       string `json:"Entity"`
-	Heading      string `json:"Heading"`
-	Image        string `json:"Image"`
-	ImageHeight  string `json:"ImageHeight"`
-	ImageWidth   string `json:"ImageWidth"`
-	Infobox      string `json:"Infobox"`
-	Redirect     string `json:"Redirect"`
+	Abstract      string `json:"Abstract"`
+	AbstractText  string `json:"AbstractText"`
+	AbstractURL   string `json:"AbstractURL"`
+	Answer        string `json:"Answer"`
+	AnswerType    string `json:"AnswerType"`
+	Definition    string `json:"Definition"`
+	Entity        string `json:"Entity"`
+	Heading       string `json:"Heading"`
+	Image         string `json:"Image"`
+	ImageHeight   string `json:"ImageHeight"`
+	ImageWidth    string `json:"ImageWidth"`
+	Infobox       string `json:"Infobox"`
+	Redirect      string `json:"Redirect"`
 	RelatedTopics []struct {
 		FirstURL string `json:"FirstURL"`
 		Icon     struct {
@@ -80,10 +80,10 @@ func (w *WebSearchInformationGatherer) SearchDocumentation(ctx context.Context, 
 
 	// Build search query with domain-specific context
 	query := w.buildDocumentationQuery(terms, domain)
-	
+
 	// Try multiple search approaches
 	var allResults []DocumentResult
-	
+
 	// 1. DuckDuckGo Instant Answer API (free, no API key required)
 	ddgResults, err := w.searchDuckDuckGo(ctx, query)
 	if err != nil {
@@ -91,7 +91,7 @@ func (w *WebSearchInformationGatherer) SearchDocumentation(ctx context.Context, 
 	} else {
 		allResults = append(allResults, ddgResults...)
 	}
-	
+
 	// 2. Generate documentation-style content using LLM as fallback/enhancement
 	llmResults, err := w.generateDocumentationContent(ctx, query, domain)
 	if err != nil {
@@ -107,7 +107,7 @@ func (w *WebSearchInformationGatherer) SearchDocumentation(ctx context.Context, 
 // buildDocumentationQuery constructs an optimized search query for documentation
 func (w *WebSearchInformationGatherer) buildDocumentationQuery(terms []string, domain string) string {
 	baseQuery := strings.Join(terms, " ")
-	
+
 	// Add domain-specific documentation sites and terms
 	domainSites := map[string][]string{
 		"kubernetes": {"site:kubernetes.io", "site:github.com/kubernetes", "kubectl", "k8s"},
@@ -117,7 +117,7 @@ func (w *WebSearchInformationGatherer) buildDocumentationQuery(terms []string, d
 		"docker":     {"site:docs.docker.com", "dockerfile", "container"},
 		"general":    {"documentation", "guide", "tutorial"},
 	}
-	
+
 	// Add domain-specific terms
 	if sites, exists := domainSites[domain]; exists {
 		for _, site := range sites {
@@ -127,7 +127,7 @@ func (w *WebSearchInformationGatherer) buildDocumentationQuery(terms []string, d
 		// Default documentation terms
 		baseQuery += " documentation guide tutorial"
 	}
-	
+
 	return baseQuery
 }
 
@@ -140,38 +140,38 @@ func (w *WebSearchInformationGatherer) searchDuckDuckGo(ctx context.Context, que
 	params.Add("format", "json")
 	params.Add("no_html", "1")
 	params.Add("skip_disambig", "1")
-	
+
 	fullURL := baseURL + "?" + params.Encode()
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", "CEL-RPC-Server/1.0")
-	
+
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute search request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("search API returned status %d", resp.StatusCode)
 	}
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-	
+
 	var searchResp DuckDuckGoSearchResponse
 	if err := json.Unmarshal(body, &searchResp); err != nil {
 		return nil, fmt.Errorf("failed to parse search response: %w", err)
 	}
-	
+
 	var results []DocumentResult
-	
+
 	// Extract abstract information
 	if searchResp.Abstract != "" {
 		results = append(results, DocumentResult{
@@ -181,7 +181,7 @@ func (w *WebSearchInformationGatherer) searchDuckDuckGo(ctx context.Context, que
 			URL:     searchResp.AbstractURL,
 		})
 	}
-	
+
 	// Extract answer if available
 	if searchResp.Answer != "" {
 		results = append(results, DocumentResult{
@@ -191,7 +191,7 @@ func (w *WebSearchInformationGatherer) searchDuckDuckGo(ctx context.Context, que
 			URL:     "",
 		})
 	}
-	
+
 	// Extract related topics
 	for i, topic := range searchResp.RelatedTopics {
 		if i >= 3 { // Limit to 3 related topics
@@ -206,7 +206,7 @@ func (w *WebSearchInformationGatherer) searchDuckDuckGo(ctx context.Context, que
 			})
 		}
 	}
-	
+
 	log.Printf("[WebSearchInformationGatherer] DuckDuckGo returned %d results", len(results))
 	return results, nil
 }
@@ -243,24 +243,24 @@ Return the results in this JSON format:
 	var response struct {
 		Documents []DocumentResult `json:"documents"`
 	}
-	
+
 	err := w.llmClient.Analyze(ctx, prompt, &response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate documentation content: %w", err)
 	}
-	
+
 	log.Printf("[WebSearchInformationGatherer] Generated %d documentation sections", len(response.Documents))
 	return response.Documents, nil
 }
 
 // AnalyzeDocuments processes gathered documents to extract actionable insights
 func (w *WebSearchInformationGatherer) AnalyzeDocuments(ctx context.Context, documents []DocumentResult, intent *EnhancedIntent) (*AnalyzedContext, error) {
-	log.Printf("[WebSearchInformationGatherer] Analyzing %d documents for intent: %s", len(documents), intent.Intent.Type)
+	log.Printf("[WebSearchInformationGatherer] Analyzing %d documents for intent: %s", len(documents), intent.PrimaryIntent)
 
 	// Combine all document content with source attribution
 	var allContent strings.Builder
 	allContent.WriteString("=== GATHERED DOCUMENTATION FROM WEB SEARCH ===\n\n")
-	
+
 	for i, doc := range documents {
 		allContent.WriteString(fmt.Sprintf("=== DOCUMENT %d: %s ===\n", i+1, doc.Title))
 		allContent.WriteString(fmt.Sprintf("Source: %s\n", doc.Source))
@@ -274,9 +274,10 @@ func (w *WebSearchInformationGatherer) AnalyzeDocuments(ctx context.Context, doc
 
 ORIGINAL USER REQUEST CONTEXT:
 - Intent Type: %s
+- Intent Summary: %s
 - Confidence: %.2f
-- Entities: %v
-- Required Steps: %v
+- Context: %v
+- Suggested Tasks: %v
 - Information Needs: %v
 
 WEB-SOURCED DOCUMENTATION:
@@ -319,11 +320,12 @@ Response format (valid JSON):
       }
     }
   ]
-}`, 
-		intent.Intent.Type, 
-		intent.Intent.Confidence, 
-		intent.Intent.Entities, 
-		intent.Intent.RequiredSteps,
+}`,
+		intent.PrimaryIntent,
+		intent.IntentSummary,
+		intent.Confidence,
+		intent.Context,
+		intent.SuggestedTasks,
 		intent.InformationNeeds,
 		allContent.String())
 
@@ -333,7 +335,7 @@ Response format (valid JSON):
 		return nil, fmt.Errorf("failed to analyze web-sourced documents: %w", err)
 	}
 
-	log.Printf("[WebSearchInformationGatherer] Analysis completed: %d requirements, %d constraints, %d recommended rules", 
+	log.Printf("[WebSearchInformationGatherer] Analysis completed: %d requirements, %d constraints, %d recommended rules",
 		len(analyzedContext.KeyRequirements), len(analyzedContext.Constraints), len(analyzedContext.RecommendedRules))
 
 	return &analyzedContext, nil

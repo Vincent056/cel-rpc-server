@@ -153,7 +153,7 @@ Return the results in this JSON format:
 
 // AnalyzeDocuments processes gathered documents to extract actionable insights
 func (o *OpenAIInformationGatherer) AnalyzeDocuments(ctx context.Context, documents []DocumentResult, intent *EnhancedIntent) (*AnalyzedContext, error) {
-	log.Printf("[OpenAIInformationGatherer] Analyzing %d documents for intent: %s", len(documents), intent.Intent.Type)
+	log.Printf("[OpenAIInformationGatherer] Analyzing %d documents for intent: %s", len(documents), intent.PrimaryIntent)
 
 	// Combine all document content with source attribution
 	var allContent strings.Builder
@@ -172,8 +172,8 @@ func (o *OpenAIInformationGatherer) AnalyzeDocuments(ctx context.Context, docume
 
 ORIGINAL USER REQUEST CONTEXT:
 - Intent Type: %s
+- Intent Summary: %s
 - Confidence: %.2f
-- Entities: %v
 - Required Steps: %v
 - Information Needs: %v
 
@@ -217,10 +217,11 @@ Response format (valid JSON):
     }
   ]
 }`,
-		intent.Intent.Type,
-		intent.Intent.Confidence,
-		intent.Intent.Entities,
-		intent.Intent.RequiredSteps,
+		intent.PrimaryIntent,
+		intent.IntentSummary,
+		intent.Confidence,
+		intent.Context,
+		intent.SuggestedTasks,
 		intent.InformationNeeds,
 		allContent.String())
 

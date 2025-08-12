@@ -8,11 +8,11 @@ import (
 
 // InformationNeed represents a detected need for additional information
 type InformationNeed struct {
-	Type        string                 `json:"type"`        // "documentation", "api_spec", "compliance_standard", etc.
-	Topic       string                 `json:"topic"`       // What information is needed
-	Priority    int                    `json:"priority"`    // How critical this information is (1-10)
+	Type        string                 `json:"type"`         // "documentation", "api_spec", "compliance_standard", etc.
+	Topic       string                 `json:"topic"`        // What information is needed
+	Priority    int                    `json:"priority"`     // How critical this information is (1-10)
 	SearchTerms []string               `json:"search_terms"` // Terms to search for
-	Context     map[string]interface{} `json:"context"`     // Additional context for the search
+	Context     map[string]interface{} `json:"context"`      // Additional context for the search
 }
 
 // EnhancedIntent extends the basic Intent with information-seeking capabilities
@@ -66,7 +66,7 @@ type RuleRecommendation struct {
 type EnhancedIntentAnalyzer struct {
 	basicAnalyzer       *IntentAnalyzer
 	informationGatherer InformationGatherer
-	llmClient          LLMClient
+	llmClient           LLMClient
 }
 
 // NewEnhancedIntentAnalyzer creates a new enhanced intent analyzer
@@ -74,7 +74,7 @@ func NewEnhancedIntentAnalyzer(llmClient LLMClient, gatherer InformationGatherer
 	return &EnhancedIntentAnalyzer{
 		basicAnalyzer:       NewIntentAnalyzer(llmClient),
 		informationGatherer: gatherer,
-		llmClient:          llmClient,
+		llmClient:           llmClient,
 	}
 }
 
@@ -129,7 +129,7 @@ func (e *EnhancedIntentAnalyzer) AnalyzeIntentWithResearch(ctx context.Context, 
 		}
 	}
 
-	log.Printf("[EnhancedIntentAnalyzer] Enhanced intent analysis completed. Research required: %v, Phase: %s", 
+	log.Printf("[EnhancedIntentAnalyzer] Enhanced intent analysis completed. Research required: %v, Phase: %s",
 		enhancedIntent.RequiresResearch, enhancedIntent.ResearchPhase)
 
 	return result, nil
@@ -141,15 +141,15 @@ func (e *EnhancedIntentAnalyzer) detectInformationNeeds(ctx context.Context, mes
 
 Consider these scenarios where research is needed:
 1. Platform-specific features (OpenShift, Kubernetes distributions, cloud providers)
-2. Compliance standards (CIS, NIST, PCI-DSS, SOC2, etc.)
+2. Configuration guidelines for specific technologies
 3. Security best practices for specific technologies
-4. API specifications or configuration formats
+4. API specifications or configuration format, API Schema.
 5. Domain-specific knowledge (networking, storage, authentication, etc.)
 
 IMPORTANT: You MUST return a JSON array, even if there's only one item or no items.
 
 For each information need, provide:
-- type: "documentation", "compliance_standard", "api_spec", "best_practices", "configuration_guide"
+- type: "documentation", "api_spec", "best_practices", "configuration_guide"
 - topic: Brief description of what information is needed
 - priority: 1-10 (10 = critical, cannot proceed without it)
 - search_terms: Array of specific terms to search for
@@ -167,8 +167,8 @@ Response format (MUST be a JSON array):
     "type": "documentation",
     "topic": "OpenShift kubeadmin user management",
     "priority": 9,
-    "search_terms": ["openshift", "kubeadmin", "disable", "authentication", "cluster-admin"],
-    "context": {"platform": "openshift", "domain": "authentication"}
+    "search_terms": ["how to disable kubeadmin on openshift", "how setup tls on log forwarding", "What is api schema for Kubernetes Pod resource"],
+    "context": {"platform": "openshift"}
   }
 ]
 
@@ -179,14 +179,14 @@ If no research is needed, return: []`, message, intent, context)
 	if err != nil {
 		// Try to handle case where AI returns a single object instead of array
 		log.Printf("[EnhancedIntentAnalyzer] Array parsing failed, trying single object: %v", err)
-		
+
 		var singleNeed InformationNeed
 		err2 := e.llmClient.Analyze(ctx, prompt, &singleNeed)
 		if err2 != nil {
 			log.Printf("[EnhancedIntentAnalyzer] Single object parsing also failed: %v", err2)
 			return nil, fmt.Errorf("failed to detect information needs: %w", err)
 		}
-		
+
 		// Successfully parsed as single object, convert to array
 		needs = []InformationNeed{singleNeed}
 		log.Printf("[EnhancedIntentAnalyzer] Successfully converted single object to array")
@@ -212,7 +212,7 @@ func (e *EnhancedIntentAnalyzer) gatherAndAnalyzeInformation(ctx context.Context
 		}
 
 		log.Printf("[EnhancedIntentAnalyzer] Gathering information for: %s", need.Topic)
-		
+
 		domain := "general"
 		if domainVal, ok := need.Context["domain"]; ok {
 			if domainStr, ok := domainVal.(string); ok {
@@ -269,11 +269,14 @@ func (e *EnhancedIntentAnalyzer) enrichIntentWithResearch(intent *EnhancedIntent
 
 	// Update required steps to include research-informed steps
 	if len(analyzedContext.KeyRequirements) > 0 {
-		intent.RequiredSteps = append([]string{"apply_research_context"}, intent.RequiredSteps...)
+		intent.SuggestedTasks = append([]TaskSuggestion{{
+			Type:        TaskType("apply_research_context"),
+			Priority:    10,
+			Description: "Apply research context to the intent",
+			Parameters:  map[string]interface{}{},
+		}}, intent.SuggestedTasks...)
 	}
 
-	log.Printf("[EnhancedIntentAnalyzer] Enhanced intent with %d rule recommendations and research context", 
+	log.Printf("[EnhancedIntentAnalyzer] Enhanced intent with %d rule recommendations and research context",
 		len(analyzedContext.RecommendedRules))
 }
-
-
