@@ -9,9 +9,11 @@ import (
 
 // Common input configuration types
 type KubernetesInputConfig struct {
-	Group    string `json:"group"`
-	Version  string `json:"version"`
-	Resource string `json:"resource"`
+	Group        string `json:"group"`
+	Version      string `json:"version"`
+	Resource     string `json:"resource"`
+	Namespace    string `json:"namespace"`
+	ResourceName string `json:"resource_name"`
 }
 
 type FileInputConfig struct {

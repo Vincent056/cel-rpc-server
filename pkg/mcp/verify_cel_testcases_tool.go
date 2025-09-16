@@ -42,7 +42,7 @@ func (ms *MCPServer) registerVerifyCELTestCasesTool() error {
 			Properties: map[string]interface{}{
 				"expression": map[string]interface{}{
 					"type":        "string",
-					"description": "The CEL expression to verify",
+					"description": "The CEL expression to verify, example of check if all namespaces have network policies: namespaces.items.all(ns, networkpolicies.items.exists(np, np.metadata.namespace == ns.metadata.name))",
 				},
 				"inputs": map[string]interface{}{
 					"type":        "array",
@@ -57,7 +57,7 @@ func (ms *MCPServer) registerVerifyCELTestCasesTool() error {
 							"type": map[string]interface{}{
 								"type":        "string",
 								"enum":        []string{"kubernetes", "file", "http"},
-								"description": "Type of input source",
+								"description": "Type of input source, use 'kubernetes' for Kubernetes resources, 'file' for file system inputs, and 'http' for HTTP API inputs",
 							},
 							"kubernetes": map[string]interface{}{
 								"type":        "object",
@@ -65,7 +65,7 @@ func (ms *MCPServer) registerVerifyCELTestCasesTool() error {
 								"properties": map[string]interface{}{
 									"group": map[string]interface{}{
 										"type":        "string",
-										"description": "API group (empty for core resources)",
+										"description": "API group (empty for core resources, for example 'apps' for 'deployments' or 'networking.k8s.io' for 'ingresses')",
 									},
 									"version": map[string]interface{}{
 										"type":        "string",
@@ -74,6 +74,14 @@ func (ms *MCPServer) registerVerifyCELTestCasesTool() error {
 									"resource": map[string]interface{}{
 										"type":        "string",
 										"description": "Resource type (plural, e.g., 'pods', 'configmaps')",
+									},
+									"namespace": map[string]interface{}{
+										"type":        "string",
+										"description": "Namespace of the resource, leave empty for cluster-scoped resources or if you want to scan all namespaces",
+									},
+									"resource_name": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource object name, for example 'my-pod' or 'my-configmap', leave empty for all resources",
 									},
 								},
 								"required": []string{"version", "resource"},
@@ -88,31 +96,11 @@ func (ms *MCPServer) registerVerifyCELTestCasesTool() error {
 									},
 									"format": map[string]interface{}{
 										"type":        "string",
-										"enum":        []string{"json", "yaml"},
-										"description": "File format",
+										"enum":        []string{"json", "yaml", "text"},
+										"description": "File format that the file is in, use 'text' for text files and 'json' or 'yaml' for JSON or YAML files",
 									},
 								},
 								"required": []string{"path", "format"},
-							},
-							"http": map[string]interface{}{
-								"type":        "object",
-								"description": "HTTP endpoint configuration (when type is 'http')",
-								"properties": map[string]interface{}{
-									"url": map[string]interface{}{
-										"type":        "string",
-										"description": "HTTP(S) endpoint URL",
-									},
-									"method": map[string]interface{}{
-										"type":        "string",
-										"enum":        []string{"GET", "POST"},
-										"description": "HTTP method",
-									},
-									"headers": map[string]interface{}{
-										"type":        "object",
-										"description": "HTTP headers",
-									},
-								},
-								"required": []string{"url"},
 							},
 						},
 						"required": []string{"name", "type"},
@@ -222,9 +210,11 @@ func (ms *MCPServer) handleVerifyCELTestCases(ctx context.Context, req mcp.CallT
 			}
 			ruleInput.InputType = &celv1.RuleInput_Kubernetes{
 				Kubernetes: &celv1.KubernetesInput{
-					Group:    inp.Kubernetes.Group,
-					Version:  inp.Kubernetes.Version,
-					Resource: inp.Kubernetes.Resource,
+					Group:        inp.Kubernetes.Group,
+					Version:      inp.Kubernetes.Version,
+					Resource:     inp.Kubernetes.Resource,
+					Namespace:    inp.Kubernetes.Namespace,
+					ResourceName: inp.Kubernetes.ResourceName,
 				},
 			}
 		case "file":
@@ -243,25 +233,6 @@ func (ms *MCPServer) handleVerifyCELTestCases(ctx context.Context, req mcp.CallT
 				File: &celv1.FileInput{
 					Path:   inp.File.Path,
 					Format: inp.File.Format,
-				},
-			}
-		case "http":
-			if inp.HTTP == nil {
-				return &mcp.CallToolResult{
-					Content: []mcp.Content{
-						mcp.TextContent{
-							Type: "text",
-							Text: fmt.Sprintf("HTTP config required for input %s", inp.Name),
-						},
-					},
-					IsError: true,
-				}, nil
-			}
-			ruleInput.InputType = &celv1.RuleInput_Http{
-				Http: &celv1.HttpInput{
-					Url:     inp.HTTP.URL,
-					Method:  inp.HTTP.Method,
-					Headers: inp.HTTP.Headers,
 				},
 			}
 		default:
