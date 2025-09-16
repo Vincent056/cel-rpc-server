@@ -310,6 +310,12 @@ message ChatAssistRequest {
   
   // Optional: conversation ID to maintain context
   string conversation_id = 5;
+  
+  // Previous messages in the conversation for context
+  repeated ConversationMessage previous_messages = 6;
+  
+  // Any existing rule being modified (for regeneration)
+  CELRule existing_rule = 7;
 }
 
 message RuleGenerationContext {
@@ -357,6 +363,9 @@ message ChatAssistResponse {
     
     // Resource discovery result
     ResourcesFound resources = 6;
+    
+    // AI asking for clarification
+    QuestionMessage question = 8;
   }
   
   // Timestamp for ordering
@@ -608,4 +617,30 @@ message RuleModificationContext {
   string rule_id = 1;  // ID of rule to modify
   CELRule current_rule = 2;  // Current rule definition
   string modification_intent = 3;  // What to change
+}
+
+// Message for conversation history
+message ConversationMessage {
+  string role = 1;  // "user", "assistant", "system"
+  string content = 2;
+  int64 timestamp = 3;
+  
+  // If this message contained a rule
+  GeneratedRule rule = 4;
+}
+
+// AI asking for clarification
+message QuestionMessage {
+  string question = 1;  // The question text
+  repeated string options = 2;  // Optional: suggested answers
+  string context = 3;  // What the AI needs this for
+  QuestionType type = 4;
+}
+
+enum QuestionType {
+  QUESTION_TYPE_UNSPECIFIED = 0;
+  QUESTION_TYPE_CLARIFICATION = 1;  // Need more details
+  QUESTION_TYPE_CONFIRMATION = 2;  // Confirm understanding
+  QUESTION_TYPE_CHOICE = 3;  // Choose from options
+  QUESTION_TYPE_ADDITIONAL_INFO = 4;  // Need extra context
 } 

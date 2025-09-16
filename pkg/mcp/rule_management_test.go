@@ -232,3 +232,127 @@ func TestRemoveRuleTool(t *testing.T) {
 
 	t.Logf("Successfully removed rule from store")
 }
+
+func TestTestRuleTool(t *testing.T) {
+	mockService := &MockCELValidationService{}
+	mockRuleStore := NewMockRuleStore()
+
+	// Add a test rule with test cases to the store
+	ruleID := "test-rule-with-cases"
+	mockRuleStore.Save(&celv1.CELRule{
+		Id:          ruleID,
+		Name:        "Test Rule With Cases",
+		Description: "This rule has test cases",
+		Expression:  "input.value > 10",
+		Inputs: []*celv1.RuleInput{
+			{
+				Name: "input",
+				InputType: &celv1.RuleInput_Kubernetes{
+					Kubernetes: &celv1.KubernetesInput{
+						Version:  "v1",
+						Resource: "configmaps",
+					},
+				},
+			},
+		},
+		TestCases: []*celv1.RuleTestCase{
+			{
+				Id:             "test-1",
+				Description:    "Test with value > 10",
+				ExpectedResult: true,
+				TestData: map[string]string{
+					"input": `{"value": 15}`,
+				},
+			},
+			{
+				Id:             "test-2",
+				Description:    "Test with value < 10",
+				ExpectedResult: false,
+				TestData: map[string]string{
+					"input": `{"value": 5}`,
+				},
+			},
+		},
+	})
+
+	server, err := NewMCPServer(mockService, mockRuleStore)
+	if err != nil {
+		t.Fatalf("Failed to create MCP server: %v", err)
+	}
+
+	// Test test_rule handler
+	handler := server.GetToolHandlers()["test_rule"]
+	if handler == nil {
+		t.Fatal("test_rule handler not found")
+	}
+
+	// Test with test_cases mode
+	t.Run("TestCasesMode", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "test_rule",
+				Arguments: map[string]interface{}{
+					"rule_id":   ruleID,
+					"test_mode": "test_cases",
+				},
+			},
+		}
+
+		ctx := context.Background()
+		result, err := handler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		// Result may have errors from actual test execution, but the handler itself should work
+		t.Logf("Test result for test_cases mode: IsError=%v", result.IsError)
+	})
+
+	// Test with custom test data
+	t.Run("CustomTestData", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "test_rule",
+				Arguments: map[string]interface{}{
+					"rule_id":   ruleID,
+					"test_mode": "test_cases",
+					"test_data": map[string]interface{}{
+						"input": map[string]interface{}{
+							"value": 20,
+						},
+					},
+				},
+			},
+		}
+
+		ctx := context.Background()
+		result, err := handler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		t.Logf("Test result for custom data: IsError=%v", result.IsError)
+	})
+
+	// Test with invalid rule ID
+	t.Run("InvalidRuleID", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "test_rule",
+				Arguments: map[string]interface{}{
+					"rule_id": "non-existent-rule",
+				},
+			},
+		}
+
+		ctx := context.Background()
+		result, err := handler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned unexpected error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error result for non-existent rule")
+		}
+	})
+}

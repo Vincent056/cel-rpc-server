@@ -59,6 +59,13 @@ type RemoveRuleInput struct {
 	RuleID string `json:"rule_id"`
 }
 
+// TestRuleInput represents the input for test_rule tool
+type TestRuleInput struct {
+	RuleID   string                 `json:"rule_id"`
+	TestMode string                 `json:"test_mode,omitempty"` // "test_cases" or "live", defaults to "test_cases"
+	TestData map[string]interface{} `json:"test_data,omitempty"` // Optional test data to override test cases
+}
+
 // registerAddRuleTool registers the add rule tool
 func (ms *MCPServer) registerAddRuleTool() error {
 	tool := mcp.Tool{
@@ -597,5 +604,342 @@ func (ms *MCPServer) handleRemoveRule(ctx context.Context, req mcp.CallToolReque
 					rule.Id, rule.Name, rule.Description),
 			},
 		},
+	}, nil
+}
+
+// registerTestRuleTool registers the test rule tool
+func (ms *MCPServer) registerTestRuleTool() error {
+	tool := mcp.Tool{
+		Name:        "test_rule",
+		Description: "Test a CEL rule from the library using its test cases or live cluster data",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"rule_id": map[string]interface{}{
+					"type":        "string",
+					"description": "ID of the rule to test",
+				},
+				"test_mode": map[string]interface{}{
+					"type":        "string",
+					"enum":        []string{"test_cases", "live"},
+					"description": "Testing mode: 'test_cases' uses predefined test cases, 'live' uses current cluster data (default: test_cases)",
+				},
+				"test_data": map[string]interface{}{
+					"type":        "object",
+					"description": "Optional test data to override test cases (for test_cases mode)",
+				},
+			},
+			Required: []string{"rule_id"},
+		},
+	}
+
+	return ms.registerTool(tool, ms.handleTestRule)
+}
+
+// handleTestRule handles the test rule tool execution
+func (ms *MCPServer) handleTestRule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var input TestRuleInput
+	if err := req.BindArguments(&input); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to parse input: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Default to test_cases mode
+	if input.TestMode == "" {
+		input.TestMode = "test_cases"
+	}
+
+	log.Printf("[MCP] Executing test_rule: %s (mode: %s)", input.RuleID, input.TestMode)
+
+	// Get the rule from the store
+	if ms.ruleStore == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Rule store not available",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	rule, err := ms.ruleStore.Get(input.RuleID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Rule not found: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Prepare the validation based on test mode
+	switch input.TestMode {
+	case "test_cases":
+		return ms.testRuleWithTestCases(ctx, rule, input.TestData)
+	case "live":
+		return ms.testRuleWithLiveData(ctx, rule)
+	default:
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Invalid test mode: %s. Use 'test_cases' or 'live'", input.TestMode),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+}
+
+// testRuleWithTestCases tests a rule using its predefined test cases or provided test data
+func (ms *MCPServer) testRuleWithTestCases(ctx context.Context, rule *celv1.CELRule, overrideData map[string]interface{}) (*mcp.CallToolResult, error) {
+	// Build the VerifyCELTestCasesInput
+	verifyInput := VerifyCELTestCasesInput{
+		Expression: rule.Expression,
+	}
+
+	// Convert rule inputs
+	for _, input := range rule.Inputs {
+		inputConfig := struct {
+			Name       string                 `json:"name"`
+			Type       string                 `json:"type"`
+			Kubernetes *KubernetesInputConfig `json:"kubernetes,omitempty"`
+			File       *FileInputConfig       `json:"file,omitempty"`
+			HTTP       *HTTPInputConfig       `json:"http,omitempty"`
+		}{
+			Name: input.Name,
+		}
+
+		switch inputType := input.GetInputType().(type) {
+		case *celv1.RuleInput_Kubernetes:
+			inputConfig.Type = "kubernetes"
+			inputConfig.Kubernetes = &KubernetesInputConfig{
+				Group:        inputType.Kubernetes.Group,
+				Version:      inputType.Kubernetes.Version,
+				Resource:     inputType.Kubernetes.Resource,
+				Namespace:    inputType.Kubernetes.Namespace,
+				ResourceName: inputType.Kubernetes.ResourceName,
+			}
+		case *celv1.RuleInput_File:
+			inputConfig.Type = "file"
+			inputConfig.File = &FileInputConfig{
+				Path:   inputType.File.Path,
+				Format: inputType.File.Format,
+			}
+		case *celv1.RuleInput_Http:
+			inputConfig.Type = "http"
+			inputConfig.HTTP = &HTTPInputConfig{
+				URL:     inputType.Http.Url,
+				Method:  inputType.Http.Method,
+				Headers: inputType.Http.Headers,
+			}
+		}
+
+		verifyInput.Inputs = append(verifyInput.Inputs, inputConfig)
+	}
+
+	// Prepare test cases
+	if overrideData != nil {
+		// Use provided test data
+		testCase := TestCaseInput{
+			ID:             "custom-test",
+			Description:    "Custom test data",
+			ExpectedResult: true, // Assume we're testing for pass
+			Inputs:         overrideData,
+		}
+		verifyInput.TestCases = []TestCaseInput{testCase}
+	} else if len(rule.TestCases) > 0 {
+		// Use rule's predefined test cases
+		for _, tc := range rule.TestCases {
+			testCase := TestCaseInput{
+				ID:             tc.Id,
+				Description:    tc.Description,
+				ExpectedResult: tc.ExpectedResult,
+				Inputs:         make(map[string]interface{}),
+			}
+
+			// Parse test data from JSON strings
+			for key, jsonData := range tc.TestData {
+				var data interface{}
+				if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+					log.Printf("[MCP] Warning: failed to parse test data for %s: %v", key, err)
+					testCase.Inputs[key] = jsonData // Use raw string if parsing fails
+				} else {
+					testCase.Inputs[key] = data
+				}
+			}
+
+			verifyInput.TestCases = append(verifyInput.TestCases, testCase)
+		}
+	} else {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "No test cases available for this rule. Provide test_data or use 'live' mode",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Create a request and call the verify handler
+	testReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "verify_cel_with_tests",
+			Arguments: verifyInput,
+		},
+	}
+
+	// Use the existing verify handler
+	handler := ms.toolHandlers["verify_cel_with_tests"]
+	if handler == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "CEL verification tool not available",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	result, err := handler(ctx, testReq)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to execute test: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Prepend rule information to the result
+	var resultText string
+	if len(result.Content) > 0 {
+		if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+			resultText = textContent.Text
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Testing Rule: %s\nDescription: %s\n\n%s",
+					rule.Name, rule.Description, resultText),
+			},
+		},
+		IsError: result.IsError,
+	}, nil
+}
+
+// testRuleWithLiveData tests a rule using live cluster data
+func (ms *MCPServer) testRuleWithLiveData(ctx context.Context, rule *celv1.CELRule) (*mcp.CallToolResult, error) {
+	// Build the VerifyCELLiveInput
+	verifyInput := VerifyCELLiveInput{
+		Expression: rule.Expression,
+	}
+
+	// Convert rule inputs (only supports Kubernetes inputs for live mode)
+	for _, input := range rule.Inputs {
+		switch inputType := input.GetInputType().(type) {
+		case *celv1.RuleInput_Kubernetes:
+			liveInput := struct {
+				Name      string `json:"name"`
+				Group     string `json:"group"`
+				Version   string `json:"version"`
+				Resource  string `json:"resource"`
+				Namespace string `json:"namespace,omitempty"`
+				Limit     int32  `json:"limit,omitempty"`
+			}{
+				Name:      input.Name,
+				Group:     inputType.Kubernetes.Group,
+				Version:   inputType.Kubernetes.Version,
+				Resource:  inputType.Kubernetes.Resource,
+				Namespace: inputType.Kubernetes.Namespace,
+			}
+			verifyInput.Inputs = append(verifyInput.Inputs, liveInput)
+		default:
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.TextContent{
+						Type: "text",
+						Text: fmt.Sprintf("Live mode only supports Kubernetes inputs. Input '%s' is not a Kubernetes resource", input.Name),
+					},
+				},
+				IsError: true,
+			}, nil
+		}
+	}
+
+	// Create a request and call the verify handler
+	testReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "verify_cel_live_resources",
+			Arguments: verifyInput,
+		},
+	}
+
+	// Use the existing verify handler
+	handler := ms.toolHandlers["verify_cel_live_resources"]
+	if handler == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "CEL live verification tool not available",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	result, err := handler(ctx, testReq)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to execute live test: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Prepend rule information to the result
+	var resultText string
+	if len(result.Content) > 0 {
+		if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+			resultText = textContent.Text
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Testing Rule: %s\nDescription: %s\nMode: Live Cluster Data\n\n%s",
+					rule.Name, rule.Description, resultText),
+			},
+		},
+		IsError: result.IsError,
 	}, nil
 }

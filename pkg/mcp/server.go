@@ -119,7 +119,11 @@ func (ms *MCPServer) registerTools() error {
 			return fmt.Errorf("failed to register remove_rule tool: %w", err)
 		}
 
-		log.Printf("[MCP] Rule management tools registered (add_rule, list_rules, remove_rule)")
+		if err := ms.registerTestRuleTool(); err != nil {
+			return fmt.Errorf("failed to register test_rule tool: %w", err)
+		}
+
+		log.Printf("[MCP] Rule management tools registered (add_rule, list_rules, remove_rule, test_rule)")
 	} else {
 		log.Printf("[MCP] Rule store not available, skipping rule management tools")
 	}

@@ -1,0 +1,68 @@
+{
+  "id": "93ac685f-ff17-4b4d-b0bd-658732c92ff2",
+  "name": "OpenShiftVirtualization_NonRootFeatureGateEnabled",
+  "description": "This rule checks if the 'nonRoot' feature gate is explicitly enabled (set to 'true') within the 'HyperConverged' resource named 'kubevirt-hyperconverged' in the 'openshift-cnv' namespace. This is crucial for restricting virtual machine access and enforcing a least-privilege model in OpenShift Virtualization environments prior to version 4.18. From OpenShift Virtualization 4.18 onwards, this feature is deprecated and the secure default (nonRoot enabled) is enforced, making this check primarily applicable to older versions.",
+  "expression": "has(hyperconverged_object.spec.featureGates) && hyperconverged_object.spec.featureGates.nonRoot == true",
+  "inputs": [
+    {
+      "name": "hyperconverged_object",
+      "kubernetes": {
+        "group": "hco.kubevirt.io",
+        "version": "v1beta1",
+        "resource": "hyperconverged",
+        "namespace": "openshift-cnv"
+      }
+    }
+  ],
+  "tags": [
+    "generated",
+    "ai-assisted"
+  ],
+  "category": "security",
+  "severity": "medium",
+  "test_cases": [
+    {
+      "id": "test-1",
+      "name": "Valid - NonRoot feature gate is true",
+      "description": "The HyperConverged resource has 'nonRoot' feature gate set to true.",
+      "test_data": {
+        "hyperconverged_object": "{\"apiVersion\":\"hco.kubevirt.io/v1beta1\",\"kind\":\"HyperConverged\",\"metadata\":{\"name\":\"kubevirt-hyperconverged\",\"namespace\":\"openshift-cnv\"},\"spec\":{\"featureGates\":{\"nonRoot\":true}}}"
+      },
+      "expected_result": true
+    },
+    {
+      "id": "test-2",
+      "name": "Invalid - NonRoot feature gate is false",
+      "description": "The HyperConverged resource has 'nonRoot' feature gate set to false.",
+      "test_data": {
+        "hyperconverged_object": "{\"apiVersion\":\"hco.kubevirt.io/v1beta1\",\"kind\":\"HyperConverged\",\"metadata\":{\"name\":\"kubevirt-hyperconverged\",\"namespace\":\"openshift-cnv\"},\"spec\":{\"featureGates\":{\"nonRoot\":false}}}"
+      }
+    },
+    {
+      "id": "test-3",
+      "name": "Invalid - NonRoot feature gate is missing",
+      "description": "The 'nonRoot' field is missing under 'featureGates'.",
+      "test_data": {
+        "hyperconverged_object": "{\"apiVersion\":\"hco.kubevirt.io/v1beta1\",\"kind\":\"HyperConverged\",\"metadata\":{\"name\":\"kubevirt-hyperconverged\",\"namespace\":\"openshift-cnv\"},\"spec\":{\"featureGates\":{\"someOtherGate\":true}}}"
+      }
+    },
+    {
+      "id": "test-4",
+      "name": "Invalid - FeatureGates object is missing",
+      "description": "The 'featureGates' object itself is missing under 'spec'.",
+      "test_data": {
+        "hyperconverged_object": "{\"apiVersion\":\"hco.kubevirt.io/v1beta1\",\"kind\":\"HyperConverged\",\"metadata\":{\"name\":\"kubevirt-hyperconverged\",\"namespace\":\"openshift-cnv\"},\"spec\":{\"someOtherField\":\"value\"}}"
+      }
+    }
+  ],
+  "metadata": {
+    "platforms": [
+      "kubernetes"
+    ]
+  },
+  "is_verified": true,
+  "created_at": "1754997453",
+  "updated_at": "1754997453",
+  "created_by": "chat-ui",
+  "last_modified_by": "chat-ui"
+}
