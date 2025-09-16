@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	celv1 "github.com/Vincent056/cel-rpc-server/gen/cel/v1"
 	"github.com/Vincent056/cel-rpc-server/gen/cel/v1/celv1connect"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -13,22 +14,33 @@ import (
 // ToolHandler is the function signature for tool handlers
 type ToolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 
+// RuleStore interface defines the operations for rule storage
+// This is a minimal interface matching what's needed from cmd/server/rulestore.go
+type RuleStore interface {
+	Save(rule *celv1.CELRule) error
+	Get(id string) (*celv1.CELRule, error)
+	List(filter *celv1.ListRulesFilter, pageSize int32, pageToken string, sortBy string, ascending bool) ([]*celv1.CELRule, string, int32, error)
+	Delete(id string) error
+}
+
 // MCPServer wraps the mcp-go server
 type MCPServer struct {
 	server       *server.MCPServer
 	service      celv1connect.CELValidationServiceHandler
+	ruleStore    RuleStore
 	tools        map[string]mcp.Tool
 	toolHandlers map[string]ToolHandler
 }
 
 // NewMCPServer creates a new MCP server using mcp-go
-func NewMCPServer(service celv1connect.CELValidationServiceHandler) (*MCPServer, error) {
+func NewMCPServer(service celv1connect.CELValidationServiceHandler, ruleStore RuleStore) (*MCPServer, error) {
 	// Create the mcp-go server
 	mcpServer := server.NewMCPServer("CEL RPC Server MCP Tools", "1.0.0")
 
 	ms := &MCPServer{
 		server:       mcpServer,
 		service:      service,
+		ruleStore:    ruleStore,
 		tools:        make(map[string]mcp.Tool),
 		toolHandlers: make(map[string]ToolHandler),
 	}
@@ -91,6 +103,25 @@ func (ms *MCPServer) registerTools() error {
 
 	if err := ms.registerGetResourceSamplesTool(); err != nil {
 		return fmt.Errorf("failed to register get_resource_samples tool: %w", err)
+	}
+
+	// Register rule management tools
+	if ms.ruleStore != nil {
+		if err := ms.registerAddRuleTool(); err != nil {
+			return fmt.Errorf("failed to register add_rule tool: %w", err)
+		}
+
+		if err := ms.registerListRulesTool(); err != nil {
+			return fmt.Errorf("failed to register list_rules tool: %w", err)
+		}
+
+		if err := ms.registerRemoveRuleTool(); err != nil {
+			return fmt.Errorf("failed to register remove_rule tool: %w", err)
+		}
+
+		log.Printf("[MCP] Rule management tools registered (add_rule, list_rules, remove_rule)")
+	} else {
+		log.Printf("[MCP] Rule store not available, skipping rule management tools")
 	}
 
 	return nil

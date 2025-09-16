@@ -43,7 +43,7 @@ func (m *MockCELValidationService) ValidateCEL(ctx context.Context, req *connect
 func TestNewMCPServer(t *testing.T) {
 	mockService := &MockCELValidationService{}
 
-	server, err := NewMCPServer(mockService)
+	server, err := NewMCPServer(mockService, nil)
 	if err != nil {
 		t.Fatalf("Failed to create MCP server: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestNewMCPServer(t *testing.T) {
 
 func TestToolInputSchemas(t *testing.T) {
 	mockService := &MockCELValidationService{}
-	server, err := NewMCPServer(mockService)
+	server, err := NewMCPServer(mockService, nil)
 	if err != nil {
 		t.Fatalf("Failed to create MCP server: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestToolInputSchemas(t *testing.T) {
 
 func TestGetServer(t *testing.T) {
 	mockService := &MockCELValidationService{}
-	server, err := NewMCPServer(mockService)
+	server, err := NewMCPServer(mockService, nil)
 	if err != nil {
 		t.Fatalf("Failed to create MCP server: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestGetServer(t *testing.T) {
 
 func TestStartServer(t *testing.T) {
 	mockService := &MockCELValidationService{}
-	server, err := NewMCPServer(mockService)
+	server, err := NewMCPServer(mockService, nil)
 	if err != nil {
 		t.Fatalf("Failed to create MCP server: %v", err)
 	}

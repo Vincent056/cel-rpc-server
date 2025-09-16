@@ -2393,7 +2393,7 @@ func main() {
 
 	}
 
-	mcpServer, err := mcp.NewMCPServer(server)
+	mcpServer, err := mcp.NewMCPServer(server, server.ruleStore)
 	if err != nil {
 		log.Fatalf("Failed to create MCP server: %v", err)
 	}
