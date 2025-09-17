@@ -20,6 +20,7 @@ type RuleStore interface {
 	Save(rule *celv1.CELRule) error
 	Get(id string) (*celv1.CELRule, error)
 	List(filter *celv1.ListRulesFilter, pageSize int32, pageToken string, sortBy string, ascending bool) ([]*celv1.CELRule, string, int32, error)
+	Update(rule *celv1.CELRule, updateFields []string) error
 	Delete(id string) error
 }
 
@@ -123,7 +124,15 @@ func (ms *MCPServer) registerTools() error {
 			return fmt.Errorf("failed to register test_rule tool: %w", err)
 		}
 
-		log.Printf("[MCP] Rule management tools registered (add_rule, list_rules, remove_rule, test_rule)")
+		if err := ms.registerGetRuleTool(); err != nil {
+			return fmt.Errorf("failed to register get_rule tool: %w", err)
+		}
+
+		if err := ms.registerUpdateRuleTool(); err != nil {
+			return fmt.Errorf("failed to register update_rule tool: %w", err)
+		}
+
+		log.Printf("[MCP] Rule management tools registered (add_rule, list_rules, remove_rule, test_rule, get_rule, update_rule)")
 	} else {
 		log.Printf("[MCP] Rule store not available, skipping rule management tools")
 	}

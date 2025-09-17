@@ -66,6 +66,25 @@ type TestRuleInput struct {
 	TestData map[string]interface{} `json:"test_data,omitempty"` // Optional test data to override test cases
 }
 
+// GetRuleInput represents the input for get_rule tool
+type GetRuleInput struct {
+	RuleID string `json:"rule_id"`
+}
+
+// UpdateRuleInput represents the input for update_rule tool
+type UpdateRuleInput struct {
+	RuleID      string             `json:"rule_id"`
+	Name        string             `json:"name,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Expression  string             `json:"expression,omitempty"`
+	Inputs      []RuleInputConfig  `json:"inputs,omitempty"`
+	Tags        []string           `json:"tags,omitempty"`
+	Category    string             `json:"category,omitempty"`
+	Severity    string             `json:"severity,omitempty"`
+	TestCases   []TestCaseInput    `json:"test_cases,omitempty"`
+	Metadata    *RuleMetadataInput `json:"metadata,omitempty"`
+}
+
 // registerAddRuleTool registers the add rule tool
 func (ms *MCPServer) registerAddRuleTool() error {
 	tool := mcp.Tool{
@@ -98,7 +117,7 @@ func (ms *MCPServer) registerAddRuleTool() error {
 							},
 							"type": map[string]interface{}{
 								"type":        "string",
-								"enum":        []string{"kubernetes", "file", "http"},
+								"enum":        []string{"kubernetes", "file"},
 								"description": "Type of input source",
 							},
 							"kubernetes": map[string]interface{}{
@@ -636,6 +655,162 @@ func (ms *MCPServer) registerTestRuleTool() error {
 	return ms.registerTool(tool, ms.handleTestRule)
 }
 
+// registerGetRuleTool registers the get rule tool
+func (ms *MCPServer) registerGetRuleTool() error {
+	tool := mcp.Tool{
+		Name:        "get_rule",
+		Description: "Get details of a specific CEL rule from the rule library",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"rule_id": map[string]interface{}{
+					"type":        "string",
+					"description": "ID of the rule to retrieve",
+				},
+			},
+			Required: []string{"rule_id"},
+		},
+	}
+
+	return ms.registerTool(tool, ms.handleGetRule)
+}
+
+// registerUpdateRuleTool registers the update rule tool
+func (ms *MCPServer) registerUpdateRuleTool() error {
+	tool := mcp.Tool{
+		Name:        "update_rule",
+		Description: "Update an existing CEL rule in the rule library",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"rule_id": map[string]interface{}{
+					"type":        "string",
+					"description": "ID of the rule to update",
+				},
+				"name": map[string]interface{}{
+					"type":        "string",
+					"description": "New name of the rule (optional)",
+				},
+				"description": map[string]interface{}{
+					"type":        "string",
+					"description": "New description of the rule (optional)",
+				},
+				"expression": map[string]interface{}{
+					"type":        "string",
+					"description": "New CEL expression for the rule (optional)",
+				},
+				"inputs": map[string]interface{}{
+					"type":        "array",
+					"description": "New input sources for the CEL expression (optional)",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": "Variable name to use in CEL expression",
+							},
+							"type": map[string]interface{}{
+								"type":        "string",
+								"enum":        []string{"kubernetes", "file", "http"},
+								"description": "Type of input source",
+							},
+							"kubernetes": map[string]interface{}{
+								"type":        "object",
+								"description": "Kubernetes resource configuration",
+								"properties": map[string]interface{}{
+									"group": map[string]interface{}{
+										"type":        "string",
+										"description": "API group",
+									},
+									"version": map[string]interface{}{
+										"type":        "string",
+										"description": "API version",
+									},
+									"resource": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource type (plural)",
+									},
+									"namespace": map[string]interface{}{
+										"type":        "string",
+										"description": "Namespace",
+									},
+								},
+								"required": []string{"version", "resource"},
+							},
+						},
+						"required": []string{"name", "type"},
+					},
+				},
+				"tags": map[string]interface{}{
+					"type":        "array",
+					"description": "Tags for categorizing the rule (optional)",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+				},
+				"category": map[string]interface{}{
+					"type":        "string",
+					"description": "Rule category (optional)",
+				},
+				"severity": map[string]interface{}{
+					"type":        "string",
+					"enum":        []string{"low", "medium", "high", "critical"},
+					"description": "Severity level of the rule (optional)",
+				},
+				"test_cases": map[string]interface{}{
+					"type":        "array",
+					"description": "Test cases for the rule (optional)",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"description": map[string]interface{}{
+								"type":        "string",
+								"description": "Description of the test case",
+							},
+							"expected_result": map[string]interface{}{
+								"type":        "boolean",
+								"description": "Expected result of the CEL expression",
+							},
+							"inputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Test data for each input variable",
+							},
+						},
+						"required": []string{"expected_result", "inputs"},
+					},
+				},
+				"metadata": map[string]interface{}{
+					"type":        "object",
+					"description": "Additional metadata for the rule (optional)",
+					"properties": map[string]interface{}{
+						"compliance_framework": map[string]interface{}{
+							"type":        "string",
+							"description": "Compliance framework (e.g., CIS, PCI-DSS, HIPAA)",
+						},
+						"control_ids": map[string]interface{}{
+							"type":        "array",
+							"description": "Control IDs from the compliance framework",
+							"items": map[string]interface{}{
+								"type": "string",
+							},
+						},
+						"references": map[string]interface{}{
+							"type":        "array",
+							"description": "References or documentation URLs",
+							"items": map[string]interface{}{
+								"type": "string",
+							},
+						},
+					},
+				},
+			},
+			Required: []string{"rule_id"},
+		},
+	}
+
+	return ms.registerTool(tool, ms.handleUpdateRule)
+}
+
 // handleTestRule handles the test rule tool execution
 func (ms *MCPServer) handleTestRule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var input TestRuleInput
@@ -941,5 +1116,345 @@ func (ms *MCPServer) testRuleWithLiveData(ctx context.Context, rule *celv1.CELRu
 			},
 		},
 		IsError: result.IsError,
+	}, nil
+}
+
+// handleGetRule handles the get rule tool execution
+func (ms *MCPServer) handleGetRule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var input GetRuleInput
+	if err := req.BindArguments(&input); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to parse input: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	log.Printf("[MCP] Executing get_rule: %s", input.RuleID)
+
+	// Get the rule using the RuleStore
+	if ms.ruleStore == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Rule store not available",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	rule, err := ms.ruleStore.Get(input.RuleID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to get rule: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Format the response with full rule details
+	mo := protojson.MarshalOptions{
+		UseProtoNames:   true,
+		Indent:          "  ",
+		EmitUnpopulated: false,
+	}
+	ruleJSON, err := mo.Marshal(rule)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to marshal rule: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Create a detailed summary
+	var result strings.Builder
+	result.WriteString("Rule Details:\n")
+	result.WriteString(fmt.Sprintf("ID: %s\n", rule.Id))
+	result.WriteString(fmt.Sprintf("Name: %s\n", rule.Name))
+	result.WriteString(fmt.Sprintf("Description: %s\n", rule.Description))
+
+	if rule.Category != "" {
+		result.WriteString(fmt.Sprintf("Category: %s\n", rule.Category))
+	}
+
+	if rule.Severity != "" {
+		result.WriteString(fmt.Sprintf("Severity: %s\n", rule.Severity))
+	}
+
+	if len(rule.Tags) > 0 {
+		result.WriteString(fmt.Sprintf("Tags: %v\n", rule.Tags))
+	}
+
+	if rule.IsVerified {
+		result.WriteString("Status: ✓ Verified\n")
+	}
+
+	result.WriteString(fmt.Sprintf("\nExpression:\n%s\n", rule.Expression))
+
+	// Show inputs
+	if len(rule.Inputs) > 0 {
+		result.WriteString("\nInputs:\n")
+		for _, input := range rule.Inputs {
+			switch inputType := input.GetInputType().(type) {
+			case *celv1.RuleInput_Kubernetes:
+				k8s := inputType.Kubernetes
+				result.WriteString(fmt.Sprintf("  - %s: Kubernetes %s/%s (namespace: %s)\n",
+					input.Name, k8s.Version, k8s.Resource, k8s.Namespace))
+			case *celv1.RuleInput_File:
+				file := inputType.File
+				result.WriteString(fmt.Sprintf("  - %s: File %s (format: %s)\n",
+					input.Name, file.Path, file.Format))
+			case *celv1.RuleInput_Http:
+				http := inputType.Http
+				result.WriteString(fmt.Sprintf("  - %s: HTTP %s %s\n",
+					input.Name, http.Method, http.Url))
+			}
+		}
+	}
+
+	// Show test cases count
+	if len(rule.TestCases) > 0 {
+		result.WriteString(fmt.Sprintf("\nTest Cases: %d defined\n", len(rule.TestCases)))
+	}
+
+	// Show metadata
+	if rule.Metadata != nil {
+		if rule.Metadata.ComplianceFramework != "" {
+			result.WriteString(fmt.Sprintf("\nCompliance Framework: %s\n", rule.Metadata.ComplianceFramework))
+		}
+		if len(rule.Metadata.References) > 0 {
+			result.WriteString(fmt.Sprintf("References: %v\n", rule.Metadata.References))
+		}
+	}
+
+	result.WriteString(fmt.Sprintf("\n--- Full Rule JSON ---\n%s", string(ruleJSON)))
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: result.String(),
+			},
+		},
+	}, nil
+}
+
+// handleUpdateRule handles the update rule tool execution
+func (ms *MCPServer) handleUpdateRule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var input UpdateRuleInput
+	if err := req.BindArguments(&input); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to parse input: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	log.Printf("[MCP] Executing update_rule: %s", input.RuleID)
+
+	// Get the existing rule first
+	if ms.ruleStore == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Rule store not available",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	existingRule, err := ms.ruleStore.Get(input.RuleID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to get existing rule: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Track which fields are being updated
+	var updateFields []string
+
+	// Update fields that were provided
+	if input.Name != "" {
+		existingRule.Name = input.Name
+		updateFields = append(updateFields, "name")
+	}
+
+	if input.Description != "" {
+		existingRule.Description = input.Description
+		updateFields = append(updateFields, "description")
+	}
+
+	if input.Expression != "" {
+		existingRule.Expression = input.Expression
+		updateFields = append(updateFields, "expression")
+	}
+
+	if input.Category != "" {
+		existingRule.Category = input.Category
+		updateFields = append(updateFields, "category")
+	}
+
+	if input.Severity != "" {
+		existingRule.Severity = input.Severity
+		updateFields = append(updateFields, "severity")
+	}
+
+	if len(input.Tags) > 0 {
+		existingRule.Tags = input.Tags
+		updateFields = append(updateFields, "tags")
+	}
+
+	// Update inputs if provided
+	if len(input.Inputs) > 0 {
+		existingRule.Inputs = []*celv1.RuleInput{}
+		for _, inputCfg := range input.Inputs {
+			ruleInput := &celv1.RuleInput{
+				Name: inputCfg.Name,
+			}
+
+			switch inputCfg.Type {
+			case "kubernetes":
+				if inputCfg.Kubernetes != nil {
+					ruleInput.InputType = &celv1.RuleInput_Kubernetes{
+						Kubernetes: &celv1.KubernetesInput{
+							Group:        inputCfg.Kubernetes.Group,
+							Version:      inputCfg.Kubernetes.Version,
+							Resource:     inputCfg.Kubernetes.Resource,
+							Namespace:    inputCfg.Kubernetes.Namespace,
+							ResourceName: inputCfg.Kubernetes.ResourceName,
+						},
+					}
+				}
+			case "file":
+				if inputCfg.File != nil {
+					ruleInput.InputType = &celv1.RuleInput_File{
+						File: &celv1.FileInput{
+							Path:   inputCfg.File.Path,
+							Format: inputCfg.File.Format,
+						},
+					}
+				}
+			case "http":
+				if inputCfg.HTTP != nil {
+					ruleInput.InputType = &celv1.RuleInput_Http{
+						Http: &celv1.HttpInput{
+							Url:     inputCfg.HTTP.URL,
+							Method:  inputCfg.HTTP.Method,
+							Headers: inputCfg.HTTP.Headers,
+						},
+					}
+				}
+			}
+
+			existingRule.Inputs = append(existingRule.Inputs, ruleInput)
+		}
+		updateFields = append(updateFields, "inputs")
+	}
+
+	// Update test cases if provided
+	if len(input.TestCases) > 0 {
+		existingRule.TestCases = []*celv1.RuleTestCase{}
+		for _, tc := range input.TestCases {
+			testCase := &celv1.RuleTestCase{
+				Description:    tc.Description,
+				ExpectedResult: tc.ExpectedResult,
+			}
+
+			// Convert test inputs to TestData map
+			if tc.Inputs != nil {
+				testCase.TestData = make(map[string]string)
+				for key, value := range tc.Inputs {
+					valueJSON, err := json.Marshal(value)
+					if err == nil {
+						testCase.TestData[key] = string(valueJSON)
+					}
+				}
+			}
+
+			existingRule.TestCases = append(existingRule.TestCases, testCase)
+		}
+		updateFields = append(updateFields, "test_cases")
+	}
+
+	// Update metadata if provided
+	if input.Metadata != nil {
+		if existingRule.Metadata == nil {
+			existingRule.Metadata = &celv1.RuleMetadata{}
+		}
+
+		if input.Metadata.ComplianceFramework != "" {
+			existingRule.Metadata.ComplianceFramework = input.Metadata.ComplianceFramework
+		}
+
+		if len(input.Metadata.References) > 0 {
+			existingRule.Metadata.References = input.Metadata.References
+		}
+
+		// Store control IDs in custom fields if provided
+		if len(input.Metadata.ControlIDs) > 0 {
+			if existingRule.Metadata.CustomFields == nil {
+				existingRule.Metadata.CustomFields = make(map[string]string)
+			}
+			controlIDsJSON, err := json.Marshal(input.Metadata.ControlIDs)
+			if err == nil {
+				existingRule.Metadata.CustomFields["control_ids"] = string(controlIDsJSON)
+			}
+		}
+
+		updateFields = append(updateFields, "metadata")
+	}
+
+	// Update the rule using the RuleStore
+	if err := ms.ruleStore.Update(existingRule, updateFields); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Failed to update rule: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Return success with updated rule details
+	mo := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	ruleJSON, _ := mo.Marshal(existingRule)
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Successfully updated rule:\nID: %s\nName: %s\nUpdated fields: %v\n\nFull rule:\n%s",
+					existingRule.Id, existingRule.Name, updateFields, string(ruleJSON)),
+			},
+		},
 	}, nil
 }
