@@ -2259,9 +2259,31 @@ func (s *CELValidationServer) createK8sClient() (*kubernetes.Clientset, error) {
 func NewCELValidationServer() (*CELValidationServer, error) {
 	// Setup Kubernetes configuration
 	kubeconfigPath := getKubeconfigPath()
-	if kubeconfigPath == "" {
-		log.Println("Warning: No kubeconfig found, running in mock mode")
-		// Return a mock server for development
+
+	// Check if kubeconfig file actually exists
+	var restConfig *rest.Config
+	var err error
+
+	if kubeconfigPath != "" && fileExists(kubeconfigPath) {
+		// Try to create config from kubeconfig file
+		restConfig, err = createKubeConfig(kubeconfigPath)
+		if err != nil {
+			log.Printf("Warning: Failed to load kubeconfig from %s: %v", kubeconfigPath, err)
+			log.Println("Falling back to mock mode")
+			restConfig = nil
+		}
+	} else {
+		// Try in-cluster config
+		restConfig, err = rest.InClusterConfig()
+		if err != nil {
+			log.Println("Warning: No valid kubeconfig found and not running in cluster, running in mock mode")
+			restConfig = nil
+		}
+	}
+
+	// If no valid config, run in mock mode
+	if restConfig == nil {
+		log.Println("Running in mock mode (no Kubernetes cluster access)")
 		ruleStore, err := NewFileRuleStore("./rules-library")
 		if err != nil {
 			return nil, fmt.Errorf("failed to create rule store: %v", err)
@@ -2269,12 +2291,6 @@ func NewCELValidationServer() (*CELValidationServer, error) {
 		return &CELValidationServer{
 			ruleStore: ruleStore,
 		}, nil
-	}
-
-	// Create rest config
-	restConfig, err := createKubeConfig(kubeconfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes config: %v", err)
 	}
 
 	// Create Kubernetes clients
@@ -2327,6 +2343,11 @@ func getKubeconfigPath() string {
 		return filepath.Join(home, ".kube", "config")
 	}
 	return ""
+}
+
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }
 
 func createKubeConfig(kubeconfigPath string) (*rest.Config, error) {

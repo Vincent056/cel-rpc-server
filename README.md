@@ -28,7 +28,6 @@ podman run \
   --name cel-rpc-server \
   -p 8349:8349 \
   -e OPENAI_API_KEY=your-openai-api-key \
-  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
   -v ./rules-library:/home/celuser/app/rules-library:Z \
   --replace \
   ghcr.io/vincent056/cel-rpc-server
@@ -40,10 +39,11 @@ podman run -d \
   -e AI_PROVIDER=gemini \
   -e GEMINI_API_KEY=your-gemini-api-key \
   -e DISABLE_INFORMATION_GATHERING=true \
-  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
   -v ./rules-library:/home/celuser/app/rules-library:Z \
   --replace \
   ghcr.io/vincent056/cel-rpc-server
+
+
 
 # Run with local Ollama
 podman run -d \
@@ -54,7 +54,6 @@ podman run -d \
   -e CUSTOM_AI_ENDPOINT=http://localhost:11434/api/generate \
   -e CUSTOM_AI_MODEL=llama2:7b \
   -e DISABLE_INFORMATION_GATHERING=true \
-  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
   -v ./rules-library:/home/celuser/app/rules-library:Z \
   ghcr.io/vincent056/cel-rpc-server
 ```
@@ -63,7 +62,10 @@ podman run -d \
 - `~/.kube/config:/KUBECONFIG/kubeconfig` - Mounts your Kubernetes config for cluster access
 - `./rules-library:/home/celuser/app/rules-library` - Mounts local rules directory for custom CEL rules
 
-**Note:** The `:Z` flag in Podman volume mounts is for SELinux contexts. If you encounter permission issues, ensure your kubeconfig file is readable by the container user (UID 1001).
+**Important Notes:**
+- The `:Z` flag in Podman volume mounts is for SELinux contexts
+- If kubeconfig doesn't exist, the server will run in mock mode (no actual cluster access)
+- For the easiest setup experience, use: `./scripts/quick-start.sh`
 
 #### With Docker
 
@@ -246,6 +248,78 @@ Open your browser to `http://localhost:8349` to access the built-in web interfac
 2. **Configure appropriate timeouts** for your use case
 3. **Monitor resource usage** and scale accordingly
 
+## Kubeconfig Setup
+
+### Recommended: Runtime Setup (No File Mounting)
+
+The easiest and most secure approach is to run the container first, then provide kubeconfig afterward:
+
+```bash
+# 1. Start the container without kubeconfig
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -e OPENAI_API_KEY=your-openai-api-key \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
+
+# 2. Set up kubeconfig after startup (choose one method):
+
+# Method A: From your local kubeconfig
+podman exec cel-rpc-server setup-kubeconfig --from-command "kubectl config view --raw"
+
+# Method B: Paste kubeconfig content directly
+podman exec -it cel-rpc-server setup-kubeconfig --from-stdin
+
+# Method C: Copy file then setup (if you have permission issues)
+podman cp ~/.kube/config cel-rpc-server:/tmp/my-kubeconfig
+podman exec cel-rpc-server setup-kubeconfig --from-file /tmp/my-kubeconfig
+
+# 3. Test the setup
+podman exec cel-rpc-server setup-kubeconfig --test
+```
+
+**Advantages of Runtime Setup:**
+- ✅ No file permission issues
+- ✅ No SELinux problems
+- ✅ Secure (kubeconfig only exists in container)
+- ✅ Easy to change kubeconfig without restarting
+- ✅ Works on all systems
+
+### Alternative: File Mounting (Traditional)
+
+If you prefer to mount your kubeconfig file:
+
+```bash
+# Ensure your kubeconfig is readable
+chmod 644 ~/.kube/config
+
+# Run with mounted kubeconfig
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -e OPENAI_API_KEY=your-openai-api-key \
+  -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
+```
+
+### Running Without Kubeconfig (Mock Mode)
+
+For testing or when you don't have a cluster:
+
+```bash
+# Run in mock mode
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -e OPENAI_API_KEY=your-openai-api-key \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
+
+# The server automatically detects no kubeconfig and uses mock mode
+```
+
 ## Troubleshooting
 
 ### Container Issues
@@ -256,6 +330,9 @@ podman logs cel-rpc-server
 
 # Check if server is running
 curl http://localhost:8349/
+
+# Check container environment
+podman exec cel-rpc-server env | grep KUBECONFIG
 ```
 
 ### AI Provider Issues
@@ -268,15 +345,33 @@ curl http://localhost:11434/api/tags
 podman exec cel-rpc-server env | grep AI_
 ```
 
-### Kubernetes Access
+### Kubeconfig Issues
 
-Ensure your kubeconfig is properly mounted:
 ```bash
-# For podman/docker
--v ~/.kube/config:/root/.kube/config:ro
+# Check kubeconfig status
+podman exec cel-rpc-server setup-kubeconfig --status
 
-# For local binary
-export KUBECONFIG=~/.kube/config
+# Test current kubeconfig
+podman exec cel-rpc-server setup-kubeconfig --test
+
+# Clear and reset kubeconfig
+podman exec cel-rpc-server setup-kubeconfig --clear
+
+# Set up new kubeconfig
+podman exec -it cel-rpc-server setup-kubeconfig --from-stdin
+```
+
+### Kubernetes Access Issues
+
+```bash
+# Test kubeconfig inside container
+podman exec cel-rpc-server kubectl config view
+
+# Check file permissions (if using mounted files)
+podman exec cel-rpc-server ls -la /KUBECONFIG/
+
+# Verify cluster connectivity
+podman exec cel-rpc-server kubectl cluster-info
 ```
 
 ## Development
@@ -297,26 +392,31 @@ docker build -t cel-rpc-server .
 go test ./...
 ```
 
-## Troubleshooting
-
 ### Permission Denied Errors
 
-If you encounter "permission denied" errors when mounting kubeconfig:
+If you still encounter "permission denied" errors after using the setup script:
 
-1. **With Podman**: Ensure you use the `:Z` flag for SELinux contexts:
+1. **Use the quick start script**:
    ```bash
-   -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z
+   ./scripts/quick-start.sh
    ```
 
-2. **File Permissions**: The container runs as user ID 1001. Ensure your kubeconfig is readable:
+2. **Manual permission fix**:
    ```bash
    chmod 644 ~/.kube/config
+   chmod 755 ~/.kube
    ```
 
-3. **Alternative Mount**: If issues persist, you can copy the kubeconfig into the container:
+3. **Alternative: Copy kubeconfig into running container**:
    ```bash
    podman cp ~/.kube/config cel-rpc-server:/KUBECONFIG/kubeconfig
    podman exec cel-rpc-server chown celuser:celuser /KUBECONFIG/kubeconfig
+   ```
+
+4. **SELinux contexts** (Podman/RHEL/Fedora):
+   ```bash
+   # Use :Z flag for proper SELinux labeling
+   -v ~/.kube/config:/KUBECONFIG/kubeconfig:Z
    ```
 
 ### Connection Issues

@@ -19,19 +19,30 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # --- Runtime use ubi as base image
 FROM registry.access.redhat.com/ubi9/ubi:latest
 
+# Install kubectl for kubeconfig testing and management
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
+
 # Copy binary from the builder stage
 COPY --from=builder /cel-rpc-server /usr/local/bin/cel-rpc-server
+
+# Copy entrypoint and setup scripts
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY scripts/setup-kubeconfig-runtime.sh /usr/local/bin/setup-kubeconfig
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/setup-kubeconfig
 
 # Create a non-root user to run the application
 RUN useradd -u 1001 -m -s /bin/bash celuser
 
 # Expose the RPC & MCP ports
 # Premake the KUBECONFIG directory with proper permissions
+# Create a more permissive setup to handle various mount scenarios
 RUN mkdir -p /KUBECONFIG && \
     touch /KUBECONFIG/kubeconfig && \
     chown -R celuser:celuser /KUBECONFIG && \
     chmod 755 /KUBECONFIG && \
-    chmod 600 /KUBECONFIG/kubeconfig
+    chmod 644 /KUBECONFIG/kubeconfig
 
 # Make sure KUBECONFIG is set
 ENV KUBECONFIG=/KUBECONFIG/kubeconfig
@@ -50,5 +61,5 @@ WORKDIR /home/celuser/app
 
 EXPOSE 8349
 
-# Run the server
-ENTRYPOINT ["/usr/local/bin/cel-rpc-server"]
+# Run the server with entrypoint script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh", "/usr/local/bin/cel-rpc-server"]
