@@ -1,0 +1,168 @@
+name: rule_testing_guide
+description: "Provides comprehensive guidance for testing CEL validation rules"
+arguments:
+  - name: testing_approach
+    description: "Testing approach (unit, integration, live, performance)"
+    required: true
+  - name: rule_complexity
+    description: "Rule complexity level (simple, medium, complex)"
+    required: false
+
+template: |
+  # Rule Testing Guide
+
+  **Testing Approach:** {{ .testing_approach }}
+  {{- if .rule_complexity }}
+  **Rule Complexity:** {{ .rule_complexity }}
+  {{- end }}
+
+  {{- if eq .testing_approach "unit" }}
+  ## Unit Testing with Test Cases
+
+  ### Use verify_cel_with_tests Tool:
+  ```
+  Tool: verify_cel_with_tests
+  Purpose: Test CEL expressions with predefined test data
+  Best for: Isolated expression testing
+  ```
+
+  ### Test Case Structure:
+  ```json
+  {
+    "test_cases": [
+      {
+        "description": "Valid pod configuration",
+        "expected_result": true,
+        "inputs": {
+          "pods": {
+            "items": [{
+              "spec": {
+                "securityContext": {
+                  "runAsNonRoot": true
+                }
+              }
+            }]
+          }
+        }
+      }
+    ]
+  }
+  ```
+  {{- else if eq .testing_approach "integration" }}
+  ## Integration Testing with Rule Store
+
+  ### Use test_rule Tool:
+  ```
+  Tool: test_rule
+  Purpose: Test complete rules from the rule library
+  Best for: End-to-end rule validation
+  ```
+
+  ### Testing Workflow:
+  1. Create rule with add_rule
+  2. Use test_rule with test_cases mode
+  3. Verify rule behavior with different inputs
+  4. Update rule if needed with update_rule
+  {{- else if eq .testing_approach "live" }}
+  ## Live Cluster Testing
+
+  ### Use verify_cel_live_resources Tool:
+  ```
+  Tool: verify_cel_live_resources
+  Purpose: Test against actual cluster resources
+  Best for: Real-world validation
+  ```
+
+  ### Live Testing Steps:
+  1. Use discover_resource_types to find available resources
+  2. Use count_resources to understand data volume
+  3. Use get_resource_samples for sample data
+  4. Test expression with verify_cel_live_resources
+  5. Use test_rule with live mode
+  {{- else if eq .testing_approach "performance" }}
+  ## Performance Testing
+
+  ### Performance Considerations:
+  - **Expression Complexity**: Avoid nested loops
+  - **Data Volume**: Test with large datasets
+  - **Memory Usage**: Monitor resource consumption
+  - **Execution Time**: Set reasonable timeouts
+
+  ### Performance Testing Steps:
+  1. Test with minimal data first
+  2. Gradually increase data volume
+  3. Monitor execution time and memory
+  4. Optimize expressions if needed
+  {{- end }}
+
+  {{- if .rule_complexity }}
+  ## {{ .rule_complexity | title }} Rule Testing Considerations:
+
+  {{- if eq .rule_complexity "simple" }}
+  ### Simple Rule Testing:
+  - Focus on basic positive/negative cases
+  - Test with minimal and complete data
+  - Verify error handling for missing fields
+  {{- else if eq .rule_complexity "medium" }}
+  ### Medium Complexity Rule Testing:
+  - Test multiple conditions and branches
+  - Include edge cases and boundary conditions
+  - Test with various resource configurations
+  - Validate performance with moderate data volumes
+  {{- else if eq .rule_complexity "complex" }}
+  ### Complex Rule Testing:
+  - Comprehensive test suite with many scenarios
+  - Test all logical branches and conditions
+  - Performance testing with large datasets
+  - Integration testing with related rules
+  - Stress testing for resource limits
+  {{- end }}
+  {{- end }}
+
+  ## Common Test Patterns:
+
+  ### 1. Positive Cases:
+  - Valid configurations that should pass
+  - Minimal valid configurations
+  - Complex valid configurations
+
+  ### 2. Negative Cases:
+  - Invalid configurations that should fail
+  - Missing required fields
+  - Incorrect values or formats
+
+  ### 3. Edge Cases:
+  - Empty collections or null values
+  - Boundary values (min/max)
+  - Special characters or formats
+
+  ### 4. Error Conditions:
+  - Malformed input data
+  - Missing required resources
+  - Network or API failures
+
+  ## Testing Best Practices:
+
+  - **Start Small**: Begin with simple test cases
+  - **Incremental**: Add complexity gradually
+  - **Comprehensive**: Cover all code paths
+  - **Realistic**: Use real-world data patterns
+  - **Automated**: Create repeatable test suites
+  - **Documentation**: Document test scenarios and expectations
+
+  ## Troubleshooting Common Issues:
+
+  ### Expression Errors:
+  - Check field existence with `has()` function
+  - Validate data types and conversions
+  - Use proper null handling
+
+  ### Performance Issues:
+  - Optimize nested loops and complex conditions
+  - Consider data filtering early in expressions
+  - Use appropriate collection operations
+
+  ### Data Issues:
+  - Verify input data structure matches expectations
+  - Check resource API versions and schemas
+  - Validate field names and paths

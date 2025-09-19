@@ -1,0 +1,107 @@
+name: rule_creation_guide
+description: "Provides comprehensive guidance for creating new CEL validation rules"
+arguments:
+  - name: rule_type
+    description: "Type of rule (security, compliance, performance, etc.)"
+    required: true
+  - name: resource_type
+    description: "Kubernetes resource type to validate (pods, deployments, services, etc.)"
+    required: true
+  - name: compliance_framework
+    description: "Compliance framework (CIS, PCI-DSS, HIPAA, SOC2, etc.)"
+    required: false
+
+template: |
+  # Creating a {{ .rule_type }} Rule for {{ .resource_type }}
+
+  {{- if .compliance_framework }}
+  **Compliance Framework:** {{ .compliance_framework }}
+  {{- end }}
+
+  ## Steps to Create Your Rule:
+
+  1. **Define the Rule Purpose**
+     - Clearly state what the rule validates
+     - Identify the security/compliance requirement
+
+  2. **Use the add_rule Tool**
+     ```
+     Use the add_rule tool with these required fields:
+     - name: Descriptive rule name
+     - description: Clear explanation of what the rule checks
+     - expression: CEL expression for validation
+     - inputs: Kubernetes resource inputs
+     ```
+
+  3. **{{ .resource_type | title }}-Specific Considerations**
+  {{- if eq .resource_type "pods" "pod" }}
+     - Check security contexts (runAsNonRoot, readOnlyRootFilesystem)
+     - Validate resource limits and requests
+     - Verify image policies and security scanning
+  {{- else if eq .resource_type "deployments" "deployment" }}
+     - Validate replica configurations
+     - Check pod template security settings
+     - Verify update strategies
+  {{- else if eq .resource_type "services" "service" }}
+     - Check service type restrictions
+     - Validate port configurations
+     - Verify load balancer settings
+  {{- else if eq .resource_type "networkpolicies" "networkpolicy" }}
+     - Validate ingress and egress rules
+     - Check pod selector configurations
+     - Verify namespace isolation
+  {{- else }}
+     - Check resource-specific security configurations
+     - Validate metadata and labels
+     - Verify access controls
+  {{- end }}
+
+  4. **Example CEL Expressions**
+     For {{ .resource_type }} validation:
+  {{- if eq .resource_type "pods" "pod" }}
+     ```cel
+     // Ensure pods run as non-root
+     pods.items.all(pod, 
+       pod.spec.securityContext.runAsNonRoot == true
+     )
+     ```
+  {{- else if eq .resource_type "deployments" "deployment" }}
+     ```cel
+     // Ensure deployments have resource limits
+     deployments.items.all(deploy, 
+       deploy.spec.template.spec.containers.all(container,
+         has(container.resources.limits)
+       )
+     )
+     ```
+  {{- else }}
+     ```cel
+     // Basic {{ .resource_type }} validation
+     {{ .resource_type | lower }}.items.all(resource, 
+       has(resource.metadata.labels) &&
+       size(resource.metadata.labels) > 0
+     )
+     ```
+  {{- end }}
+
+  5. **Test Your Rule**
+     - Use verify_cel_with_tests for unit testing
+     - Use verify_cel_live_resources for live cluster testing
+     - Use test_rule tool after creating the rule
+
+  ## Recommended MCP Tool Workflow:
+
+  1. `discover_resource_types` - Find available Kubernetes resources
+  2. `get_resource_samples` - Get sample resource data
+  3. `verify_cel_with_tests` - Test your CEL expression
+  4. `add_rule` - Create the rule
+  5. `test_rule` - Test the created rule
+  6. `list_rules` - Verify the rule was added
+
+  ## Best Practices:
+
+  - **Clear Naming**: Use descriptive rule names
+  - **Comprehensive Testing**: Include multiple test cases
+  - **Documentation**: Add detailed descriptions and metadata
+  - **Incremental Development**: Start simple, then add complexity
+  - **Compliance Alignment**: Map to specific compliance controls

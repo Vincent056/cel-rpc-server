@@ -1,0 +1,136 @@
+name: cel_expression_help
+description: "Provides help and examples for writing CEL expressions"
+arguments:
+  - name: use_case
+    description: "Specific use case (validation, filtering, transformation, etc.)"
+    required: true
+  - name: data_type
+    description: "Type of data being processed (kubernetes, json, string, etc.)"
+    required: false
+
+template: |
+  # CEL Expression Help
+
+  **Use Case:** {{ .use_case }}
+  {{- if .data_type }}
+  **Data Type:** {{ .data_type }}
+  {{- end }}
+
+  ## CEL Expression Fundamentals:
+
+  ### Basic Operators:
+  - `==`, `!=` - Equality
+  - `<`, `<=`, `>`, `>=` - Comparison
+  - `&&`, `||`, `!` - Logical
+  - `+`, `-`, `*`, `/`, `%` - Arithmetic
+  - `in` - Membership test
+  - `has()` - Field existence
+
+  ### Collection Operations:
+  - `items.all(item, condition)` - All items match
+  - `items.exists(item, condition)` - Any item matches
+  - `items.filter(item, condition)` - Filter items
+  - `items.map(item, expression)` - Transform items
+  - `size(collection)` - Get collection size
+
+  {{- if eq .use_case "validation" }}
+  ## Validation Examples:
+
+  ### Required Fields:
+  ```cel
+  has(resource.metadata.name) && 
+  has(resource.metadata.namespace)
+  ```
+
+  ### Security Validation:
+  ```cel
+  // Pods must run as non-root
+  pods.items.all(pod, 
+    has(pod.spec.securityContext) &&
+    pod.spec.securityContext.runAsNonRoot == true
+  )
+  ```
+  {{- else if eq .use_case "filtering" }}
+  ## Filtering Examples:
+
+  ### Filter by Labels:
+  ```cel
+  resources.items.filter(resource, 
+    has(resource.metadata.labels.app) &&
+    resource.metadata.labels.app == 'production'
+  )
+  ```
+
+  ### Filter by Namespace:
+  ```cel
+  resources.items.filter(resource,
+    resource.metadata.namespace in ['default', 'kube-system']
+  )
+  ```
+  {{- else if eq .use_case "transformation" }}
+  ## Transformation Examples:
+
+  ### Extract Names:
+  ```cel
+  resources.items.map(resource, resource.metadata.name)
+  ```
+
+  ### Create Summary:
+  ```cel
+  resources.items.map(resource, {
+    'name': resource.metadata.name,
+    'namespace': resource.metadata.namespace,
+    'kind': resource.kind
+  })
+  ```
+  {{- end }}
+
+  {{- if eq .data_type "kubernetes" }}
+  ## Kubernetes-Specific Patterns:
+
+  ### Resource Limits:
+  ```cel
+  pods.items.all(pod,
+    pod.spec.containers.all(container,
+      has(container.resources.limits.memory) &&
+      has(container.resources.limits.cpu)
+    )
+  )
+  ```
+
+  ### Image Security:
+  ```cel
+  pods.items.all(pod,
+    pod.spec.containers.all(container,
+      !container.image.startsWith('latest') &&
+      !container.image.contains(':')
+    )
+  )
+  ```
+  {{- end }}
+
+  ## Common Patterns:
+
+  ### String Operations:
+  - `str.startsWith('prefix')`
+  - `str.endsWith('suffix')`
+  - `str.contains('substring')`
+  - `str.matches('^pattern$')`
+
+  ### Conditional Logic:
+  ```cel
+  condition ? value_if_true : value_if_false
+  ```
+
+  ### Null Safety:
+  ```cel
+  has(object.field) ? object.field : 'default'
+  ```
+
+  ## Testing Your CEL Expressions:
+
+  1. Start with simple expressions
+  2. Use `verify_cel_with_tests` tool for unit testing
+  3. Test with edge cases (null values, empty collections)
+  4. Validate against real data with `verify_cel_live_resources`
+  5. Use `get_resource_samples` to get test data

@@ -51,6 +51,16 @@ func NewMCPServer(service celv1connect.CELValidationServiceHandler, ruleStore Ru
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
 
+	// Register prompts
+	if err := ms.registerPrompts(); err != nil {
+		return nil, fmt.Errorf("failed to register prompts: %w", err)
+	}
+
+	// Register resources
+	if err := ms.registerResources(); err != nil {
+		return nil, fmt.Errorf("failed to register resources: %w", err)
+	}
+
 	return ms, nil
 }
 

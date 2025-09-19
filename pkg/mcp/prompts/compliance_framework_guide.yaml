@@ -1,0 +1,42 @@
+# TODO: Compliance Framework Guide
+
+# This prompt template will provide guidance for implementing compliance framework rules
+# when fully implemented. For now, use the basic rule creation guide and CEL expression help.
+
+name: compliance_framework_guide
+description: "TODO: Provides guidance for implementing compliance framework rules"
+arguments:
+  - name: framework
+    description: "Compliance framework (CIS, PCI-DSS, HIPAA, SOC2, NIST, etc.)"
+    required: true
+  - name: control_id
+    description: "Specific control ID within the framework"
+    required: false
+
+template: |
+  # TODO: {{ .framework | upper }} Compliance Implementation Guide
+  
+  This prompt is under development. For now, please:
+  
+  1. Use the `rule_creation_guide` prompt for general rule creation guidance
+  2. Use the `cel_expression_help` prompt for CEL syntax help
+  3. Use `list_rules` and `get_rule` tools to explore existing compliance rules
+  4. Refer to the CEL examples resource for step-by-step patterns
+  
+  ## Placeholder Content
+  
+  Future implementation will include:
+  - Framework-specific control mappings
+  - Compliance-focused CEL patterns
+  - Control-to-rule mapping guidance
+  - Evidence collection requirements
+  - Audit trail documentation
+  
+  ## Current Workflow
+  
+  For compliance rule creation, follow these steps:
+  1. Use `list_rules category=compliance` to see existing compliance rules
+  2. Use `get_rule` to study specific compliance rule implementations
+  3. Use `rule_creation_guide` prompt with compliance context
+  4. Use `cel_expression_help` for technical implementation
+  5. Create rule with proper compliance metadata using `add_rule`
