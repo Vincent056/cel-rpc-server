@@ -2,6 +2,50 @@
 
 A high-performance gRPC server for validating Kubernetes resources using Common Expression Language (CEL). Features AI-powered rule generation with support for multiple AI providers including OpenAI, Google Gemini, and local models via Ollama.
 
+**Note:** AI providers are only required for frontend/backend API workflows that use AI-powered rule generation. When using this server purely as an MCP (Model Context Protocol) server, no AI API keys are needed.
+
+## MCP Server Usage (No AI Keys Required)
+
+The server can be used as an MCP (Model Context Protocol) server without any AI API keys:
+
+```bash
+# Start the server for MCP usage (no AI keys needed)
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  --replace \
+  ghcr.io/vincent056/cel-rpc-server
+
+```
+
+### MCP Configuration
+
+Add this to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "cel-validation": {
+      "url": "http://localhost:8349/mcp",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+```
+
+This provides CEL validation, rule management, and Kubernetes resource discovery capabilities to AI assistants without requiring the server itself to have AI provider access.
+
+**MCP Tools Available:**
+- `verify_cel_with_tests` - Test CEL expressions with sample data
+- `verify_cel_live_resources` - Validate CEL against live cluster resources
+- `discover_resource_types` - Discover available Kubernetes resources
+- `count_resources` - Count instances of specific resource types
+- `get_resource_samples` - Get sample resources from cluster
+- `add_rule`, `list_rules`, `remove_rule`, `test_rule` - Rule management
+
 ## Features
 
 - **CEL Validation**: Validate Kubernetes resources using CEL expressions
@@ -146,18 +190,20 @@ Rules should be in YAML format. See the [rules-library](./rules-library) directo
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AI_PROVIDER` | AI provider to use: `openai`, `gemini`, `custom` | `openai` |
-| `OPENAI_API_KEY` | OpenAI API key (when using OpenAI) | - |
-| `OPENAI_MODEL` | OpenAI model to use | `gpt-4.1` |
-| `GEMINI_API_KEY` | Google Gemini API key (when using Gemini) | - |
-| `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
-| `CUSTOM_AI_ENDPOINT` | Custom AI endpoint URL | - |
-| `CUSTOM_AI_MODEL` | Model name for custom endpoint | - |
-| `CUSTOM_AI_API_KEY` | API key for custom endpoint | - |
-| `CUSTOM_AI_HEADERS` | Custom headers (format: `Header1:Value1,Header2:Value2`) | - |
-| `DISABLE_INFORMATION_GATHERING` | Disable AI research phase for faster responses | `false` |
+| Variable | Description | Default | Required For |
+|----------|-------------|---------|--------------|
+| `AI_PROVIDER` | AI provider to use: `openai`, `gemini`, `custom` | `openai` | Frontend/Backend AI workflows |
+| `OPENAI_API_KEY` | OpenAI API key (when using OpenAI) | - | AI-powered rule generation |
+| `OPENAI_MODEL` | OpenAI model to use | `gpt-4.1` | OpenAI workflows |
+| `GEMINI_API_KEY` | Google Gemini API key (when using Gemini) | - | AI-powered rule generation |
+| `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` | Gemini workflows |
+| `CUSTOM_AI_ENDPOINT` | Custom AI endpoint URL | - | Custom AI workflows |
+| `CUSTOM_AI_MODEL` | Model name for custom endpoint | - | Custom AI workflows |
+| `CUSTOM_AI_API_KEY` | API key for custom endpoint | - | Custom AI workflows |
+| `CUSTOM_AI_HEADERS` | Custom headers (format: `Header1:Value1,Header2:Value2`) | - | Custom AI workflows |
+| `DISABLE_INFORMATION_GATHERING` | Disable AI research phase for faster responses | `false` | AI workflows optimization |
+
+**Note:** All AI-related environment variables are **optional** when using the server purely as an MCP server for CEL validation and rule management.
 
 ### AI Provider Examples
 
@@ -198,12 +244,13 @@ Once the server is running, it exposes several endpoints:
 
 - **CEL Validation Service**: `http://localhost:8349/cel.v1.CELValidationService/`
   - `ValidateCEL`: Validate CEL expressions
-  - `ChatAssist`: AI-powered chat assistance for rule generation
+  - `ChatAssist`: AI-powered chat assistance for rule generation (requires AI API key)
   - `GetResourceSamples`: Get sample resources from the cluster
   - And more...
 
 - **MCP Tools**: `http://localhost:8349/mcp`
   - Model Context Protocol tools for enhanced AI interactions
+  - **No AI API key required** - works independently for CEL validation and rule management
 
 ### Example: Using grpcurl
 
@@ -223,6 +270,7 @@ grpcurl -plaintext -d '{"message": "create a rule to ensure all pods have resour
 ### Example: Using the Web UI
 
 Open your browser to `http://localhost:8349` to access the built-in web interface.
+
 
 ## Performance Tips
 
@@ -255,7 +303,14 @@ Open your browser to `http://localhost:8349` to access the built-in web interfac
 The easiest and most secure approach is to run the container first, then provide kubeconfig afterward:
 
 ```bash
-# 1. Start the container without kubeconfig
+# 1. Start the container (no AI key needed for MCP usage)
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
+
+# Or with AI provider for frontend/backend workflows
 podman run -d \
   --name cel-rpc-server \
   -p 8349:8349 \
@@ -309,7 +364,14 @@ podman run -d \
 For testing or when you don't have a cluster:
 
 ```bash
-# Run in mock mode
+# Run in mock mode (no AI key needed for MCP usage)
+podman run -d \
+  --name cel-rpc-server \
+  -p 8349:8349 \
+  -v ./rules-library:/home/celuser/app/rules-library:Z \
+  ghcr.io/vincent056/cel-rpc-server
+
+# Or with AI provider for frontend/backend workflows
 podman run -d \
   --name cel-rpc-server \
   -p 8349:8349 \
