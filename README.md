@@ -15,7 +15,7 @@ podman run -d \
   -p 8349:8349 \
   -v ./rules-library:/home/celuser/app/rules-library:Z \
   --replace \
-  ghcr.io/vincent056/cel-rpc-server
+  ghcr.io/vincent056/cel-rpc-server --no-cache
 
 ```
 

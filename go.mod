@@ -7,7 +7,7 @@ toolchain go1.24.3
 require (
 	connectrpc.com/connect v1.18.1
 	connectrpc.com/grpcreflect v1.3.0
-	github.com/Vincent056/celscanner v0.0.0-20250723095530-5c735d1ada36
+	github.com/ComplianceAsCode/compliance-sdk v0.0.0-20250930163558-59886979dd19
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/mark3labs/mcp-go v0.34.0

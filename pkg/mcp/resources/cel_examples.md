@@ -305,3 +305,7 @@ size(pod.spec.containers) > 0
 6. `add_rule` - Create the rule
 7. `test_rule` - Validate the complete rule
 8. `update_rule` - Refine if needed
+
+
+
+

@@ -1,0 +1,91 @@
+{
+  "id":  "943b1381-3ccc-497c-8da3-7f505bc2003b",
+  "name":  "All Namespaces Network Policy Requirement",
+  "description":  "This rule verifies that every namespace in the cluster has at least one NetworkPolicy resource. This ensures that network traffic is properly controlled and isolated between namespaces, which is a critical security requirement for multi-tenant Kubernetes environments. Network policies help prevent unauthorized network access and implement network segmentation.",
+  "expression":  "namespaces.items.all(ns, networkpolicies.items.exists(np, np.metadata.namespace == ns.metadata.name))",
+  "inputs":  [
+    {
+      "name":  "namespaces",
+      "kubernetes":  {
+        "version":  "v1",
+        "resource":  "namespaces"
+      }
+    },
+    {
+      "name":  "networkpolicies",
+      "kubernetes":  {
+        "group":  "networking.k8s.io",
+        "version":  "v1",
+        "resource":  "networkpolicies"
+      }
+    }
+  ],
+  "tags":  [
+    "network-security",
+    "compliance",
+    "multi-tenant",
+    "network-isolation"
+  ],
+  "category":  "security",
+  "severity":  "high",
+  "test_cases":  [
+    {
+      "description":  "All namespaces have network policies",
+      "test_data":  {
+        "namespaces":  "{\"items\":[{\"metadata\":{\"name\":\"default\"}},{\"metadata\":{\"name\":\"kube-system\"}},{\"metadata\":{\"name\":\"production\"}}]}",
+        "networkpolicies":  "{\"items\":[{\"metadata\":{\"name\":\"default-np\",\"namespace\":\"default\"}},{\"metadata\":{\"name\":\"kube-system-np\",\"namespace\":\"kube-system\"}},{\"metadata\":{\"name\":\"prod-np\",\"namespace\":\"production\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "description":  "Some namespaces missing network policies",
+      "test_data":  {
+        "namespaces":  "{\"items\":[{\"metadata\":{\"name\":\"default\"}},{\"metadata\":{\"name\":\"kube-system\"}},{\"metadata\":{\"name\":\"production\"}}]}",
+        "networkpolicies":  "{\"items\":[{\"metadata\":{\"name\":\"default-np\",\"namespace\":\"default\"}},{\"metadata\":{\"name\":\"kube-system-np\",\"namespace\":\"kube-system\"}}]}"
+      }
+    },
+    {
+      "description":  "Empty cluster with no namespaces",
+      "test_data":  {
+        "namespaces":  "{\"items\":[]}",
+        "networkpolicies":  "{\"items\":[]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "description":  "Single namespace with network policy",
+      "test_data":  {
+        "namespaces":  "{\"items\":[{\"metadata\":{\"name\":\"default\"}}]}",
+        "networkpolicies":  "{\"items\":[{\"metadata\":{\"name\":\"default-np\",\"namespace\":\"default\"}}]}"
+      },
+      "expected_result":  true
+    },
+    {
+      "description":  "Single namespace without network policy",
+      "test_data":  {
+        "namespaces":  "{\"items\":[{\"metadata\":{\"name\":\"default\"}}]}",
+        "networkpolicies":  "{\"items\":[]}"
+      }
+    },
+    {
+      "description":  "Multiple network policies in same namespace",
+      "test_data":  {
+        "namespaces":  "{\"items\":[{\"metadata\":{\"name\":\"default\"}}]}",
+        "networkpolicies":  "{\"items\":[{\"metadata\":{\"name\":\"np1\",\"namespace\":\"default\"}},{\"metadata\":{\"name\":\"np2\",\"namespace\":\"default\"}}]}"
+      },
+      "expected_result":  true
+    }
+  ],
+  "metadata":  {
+    "compliance_framework":  "CIS Kubernetes Benchmark",
+    "references":  [
+      "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "https://www.cisecurity.org/benchmark/kubernetes"
+    ],
+    "custom_fields":  {
+      "control_ids":  "[\"5.3.1\"]"
+    }
+  },
+  "created_at":  "1758290932",
+  "updated_at":  "1758290932"
+}

@@ -1,0 +1,70 @@
+{
+  "id": "2ac55628-8557-4f40-81f2-1a82e8534686",
+  "name": "etcd_client_certificate_configured",
+  "description": "This rule verifies that the etcd client certificate is correctly configured in the etcd pod configuration. It checks that the etcd binary command contains the required --cert-file argument pointing to the correct certificate path pattern.",
+  "expression": "etcd_configs.items.exists(config, config.data[\"pod.yaml\"].contains(\"--cert-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-\") && config.data[\"pod.yaml\"].contains(\"/etcd-serving-\") && config.data[\"pod.yaml\"].contains(\".crt\"))",
+  "inputs": [
+    {
+      "name": "etcd_configs",
+      "kubernetes": {
+        "version": "v1",
+        "resource": "configmaps",
+        "namespace": "openshift-etcd"
+      }
+    }
+  ],
+  "tags": [
+    "etcd",
+    "certificate",
+    "tls",
+    "openshift",
+    "compliance"
+  ],
+  "category": "security",
+  "severity": "medium",
+  "test_cases": [
+    {
+      "description": "etcd configmap with correct certificate file path",
+      "test_data": {
+        "etcd_configs": "{\"items\":[{\"data\":{\"pod.yaml\":\"etcd --cert-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-master/etcd-serving-master.crt --key-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-master/etcd-serving-master.key\"}}]}"
+      },
+      "expected_result": true
+    },
+    {
+      "description": "etcd configmap with incorrect certificate file path",
+      "test_data": {
+        "etcd_configs": "{\"items\":[{\"data\":{\"pod.yaml\":\"etcd --cert-file=/wrong/path/cert.crt --key-file=/wrong/path/key.key\"}}]}"
+      }
+    },
+    {
+      "description": "etcd configmap missing certificate file argument",
+      "test_data": {
+        "etcd_configs": "{\"items\":[{\"data\":{\"pod.yaml\":\"etcd --key-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-master/etcd-serving-master.key\"}}]}"
+      }
+    },
+    {
+      "description": "empty etcd configmap",
+      "test_data": {
+        "etcd_configs": "{\"items\":[{\"data\":{\"pod.yaml\":\"\"}}]}"
+      }
+    },
+    {
+      "description": "multiple etcd configmaps with correct certificate paths",
+      "test_data": {
+        "etcd_configs": "{\"items\":[{\"data\":{\"pod.yaml\":\"etcd --cert-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-master1/etcd-serving-master1.crt\"}},{\"data\":{\"pod.yaml\":\"etcd --cert-file=/etc/kubernetes/static-pod-certs/secrets/etcd-all-master2/etcd-serving-master2.crt\"}}]}"
+      },
+      "expected_result": true
+    }
+  ],
+  "metadata": {
+    "compliance_framework": "CIS",
+    "references": [
+      "https://docs.openshift.com/container-platform/latest/security/etcd.html"
+    ],
+    "custom_fields": {
+      "control_ids": "[\"2.1\"]"
+    }
+  },
+  "created_at": "1758727086",
+  "updated_at": "1758727086"
+}

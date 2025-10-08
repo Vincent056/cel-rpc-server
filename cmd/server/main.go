@@ -23,9 +23,9 @@ import (
 	celv1 "github.com/Vincent056/cel-rpc-server/gen/cel/v1"
 	"github.com/Vincent056/cel-rpc-server/gen/cel/v1/celv1connect"
 
+	"github.com/ComplianceAsCode/compliance-sdk/pkg/fetchers"
+	"github.com/ComplianceAsCode/compliance-sdk/pkg/scanner"
 	"github.com/Vincent056/cel-rpc-server/pkg/mcp"
-	"github.com/Vincent056/celscanner"
-	"github.com/Vincent056/celscanner/fetchers"
 	serverv1 "github.com/mark3labs/mcp-go/server"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
@@ -42,7 +42,7 @@ import (
 )
 
 type CELValidationServer struct {
-	scanner       *celscanner.Scanner
+	scanner       *scanner.Scanner
 	kubeClient    kubernetes.Interface
 	runtimeClient runtimeclient.Client
 	dynamicClient dynamic.Interface
@@ -135,8 +135,8 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 
 	// Otherwise, use standard validation
 	// Create a rule builder
-	ruleBuilder := celscanner.NewRuleBuilder("multi-input-validation").
-		SetExpression(req.Msg.Expression).
+	ruleBuilder := scanner.NewRuleBuilder("multi-input-validation", scanner.RuleTypeCEL).
+		SetCelExpression(req.Msg.Expression).
 		WithName("Multi-Input Validation")
 
 	// Process each input
@@ -192,15 +192,15 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 		}
 	}
 
-	rule, err := ruleBuilder.Build()
+	rule, err := ruleBuilder.BuildCelRule()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("failed to build rule: %w", err))
 	}
 
 	// Create scan config
-	config := celscanner.ScanConfig{
-		Rules: []celscanner.CelRule{rule},
+	config := scanner.ScanConfig{
+		Rules: []scanner.Rule{rule},
 	}
 
 	// Run validation
@@ -219,7 +219,7 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 
 	// Check if we have any results with errors that indicate cluster access issues
 	for _, result := range results {
-		if result.Status == celscanner.CheckResultError && result.ErrorMessage != "" {
+		if result.Status == scanner.CheckResultError && result.ErrorMessage != "" {
 			// Check if this is a CEL compilation error due to missing variables from cluster access failure
 			if strings.Contains(result.ErrorMessage, "undeclared reference") {
 				// Look for cluster access related errors in the error message or logs
@@ -252,7 +252,7 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 		validationResult := &celv1.ValidationResult{
 			EvaluationContext: evaluationContext,
 			TestCase:          fmt.Sprintf("Resource %d validation", i+1),
-			Passed:            result.Status == celscanner.CheckResultPass,
+			Passed:            result.Status == scanner.CheckResultPass,
 			Error:             result.ErrorMessage,
 			Details:           fmt.Sprintf("Status: %s", result.Status),
 		}
@@ -288,7 +288,7 @@ func (s *CELValidationServer) validateWithMultipleInputs(
 	}
 
 	// If the validation failed and we have Kubernetes pod inputs, provide detailed violation info
-	if len(results) > 0 && results[0].Status == celscanner.CheckResultFail {
+	if len(results) > 0 && results[0].Status == scanner.CheckResultFail {
 		// Collect all inputs for analysis
 		violations := s.analyzeViolations(ctx, req.Msg.Expression, req.Msg.Inputs)
 		if violations != "" {
@@ -2316,7 +2316,7 @@ func NewCELValidationServer() (*CELValidationServer, error) {
 		Build()
 
 	// Create scanner
-	scanner := celscanner.NewScanner(compositeFetcher, &ConnectLogger{})
+	scannerInstance := scanner.NewScanner(compositeFetcher, &ConnectLogger{})
 
 	// Create rule store
 	ruleStore, err := NewFileRuleStore("./rules-library")
@@ -2325,7 +2325,7 @@ func NewCELValidationServer() (*CELValidationServer, error) {
 	}
 
 	return &CELValidationServer{
-		scanner:       scanner,
+		scanner:       scannerInstance,
 		kubeClient:    clientset,
 		runtimeClient: runtimeClient,
 		dynamicClient: dynamicClient,

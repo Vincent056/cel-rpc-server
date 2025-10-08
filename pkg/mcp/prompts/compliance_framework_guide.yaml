@@ -40,3 +40,7 @@ template: |
   3. Use `rule_creation_guide` prompt with compliance context
   4. Use `cel_expression_help` for technical implementation
   5. Create rule with proper compliance metadata using `add_rule`
+
+
+
+

@@ -9,10 +9,10 @@ connectrpc.com/connect/internal/gen/connectext/grpc/status/v1
 ## explicit; go 1.21
 connectrpc.com/grpcreflect
 connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1
-# github.com/Vincent056/celscanner v0.0.0-20250723095530-5c735d1ada36
+# github.com/ComplianceAsCode/compliance-sdk v0.0.0-20250930163558-59886979dd19
 ## explicit; go 1.23.0
-github.com/Vincent056/celscanner
-github.com/Vincent056/celscanner/fetchers
+github.com/ComplianceAsCode/compliance-sdk/pkg/fetchers
+github.com/ComplianceAsCode/compliance-sdk/pkg/scanner
 # github.com/antlr4-go/antlr/v4 v4.13.1
 ## explicit; go 1.22
 github.com/antlr4-go/antlr/v4

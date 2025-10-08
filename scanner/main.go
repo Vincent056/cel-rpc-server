@@ -8,10 +8,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/Vincent056/celscanner"
+	"github.com/ComplianceAsCode/compliance-sdk/pkg/scanner"
 )
 
-// SimpleLogger implements the celscanner.Logger interface
+// SimpleLogger implements the scanner.Logger interface
 type SimpleLogger struct{}
 
 func (l *SimpleLogger) Debug(msg string, args ...interface{}) {
@@ -52,26 +52,26 @@ func main() {
 	log.Printf("[Scanner] Input name: %s", *inputName)
 
 	// Create a CEL rule
-	rule, err := celscanner.NewRuleBuilder("node-file-check").
-		SetExpression(*expression).
+	rule, err := scanner.NewRuleBuilder("node-file-check", scanner.RuleTypeCEL).
+		SetCelExpression(*expression).
 		WithName(fmt.Sprintf("File check on %s", nodeName)).
 		WithFileInput(*inputName, *filePath, *fileFormat, false, true).
-		Build()
+		BuildCelRule()
 	if err != nil {
 		log.Fatalf("Failed to create rule: %v", err)
 	}
 
 	// Create scan config
-	config := celscanner.ScanConfig{
-		Rules: []celscanner.CelRule{rule},
+	config := scanner.ScanConfig{
+		Rules: []scanner.Rule{rule},
 	}
 
 	// Create scanner (no k8s client needed for file checks)
-	scanner := celscanner.NewScanner(nil, &SimpleLogger{})
+	scannerInstance := scanner.NewScanner(nil, &SimpleLogger{})
 
 	// Run scan
 	ctx := context.Background()
-	results, err := scanner.Scan(ctx, config)
+	results, err := scannerInstance.Scan(ctx, config)
 	if err != nil {
 		log.Fatalf("Scan failed: %v", err)
 	}

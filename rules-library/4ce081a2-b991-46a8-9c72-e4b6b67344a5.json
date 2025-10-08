@@ -1,0 +1,70 @@
+{
+  "id": "4ce081a2-b991-46a8-9c72-e4b6b67344a5",
+  "name": "Pod Resource Limits Requirement",
+  "description": "This rule verifies that every Pod in the cluster has resource limits defined for both CPU and memory. This ensures proper resource management, prevents resource exhaustion attacks, and enables better cluster scheduling and capacity planning. Pods without resource limits can consume unlimited cluster resources, leading to potential denial-of-service scenarios.",
+  "expression": "pods.items.all(pod, pod.spec.containers.all(container, has(container.resources) && has(container.resources.limits) && has(container.resources.limits.cpu) && has(container.resources.limits.memory)))",
+  "inputs": [
+    {
+      "name": "pods",
+      "kubernetes": {
+        "version": "v1",
+        "resource": "pods"
+      }
+    }
+  ],
+  "tags": [
+    "resource-management",
+    "security",
+    "compliance",
+    "resource-limits",
+    "cpu",
+    "memory"
+  ],
+  "category": "security",
+  "severity": "high",
+  "test_cases": [
+    {
+      "description": "Pod with both CPU and memory limits should pass",
+      "test_data": {
+        "pods": "{\"items\":[{\"spec\":{\"containers\":[{\"name\":\"test-container\",\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"}}}]}}]}"
+      },
+      "expected_result": true
+    },
+    {
+      "description": "Pod missing CPU limit should fail",
+      "test_data": {
+        "pods": "{\"items\":[{\"spec\":{\"containers\":[{\"name\":\"test-container\",\"resources\":{\"limits\":{\"memory\":\"128Mi\"}}}]}}]}"
+      }
+    },
+    {
+      "description": "Pod missing memory limit should fail",
+      "test_data": {
+        "pods": "{\"items\":[{\"spec\":{\"containers\":[{\"name\":\"test-container\",\"resources\":{\"limits\":{\"cpu\":\"100m\"}}}]}}]}"
+      }
+    },
+    {
+      "description": "Pod with no resources section should fail",
+      "test_data": {
+        "pods": "{\"items\":[{\"spec\":{\"containers\":[{\"name\":\"test-container\"}]}}]}"
+      }
+    },
+    {
+      "description": "Pod with no limits section should fail",
+      "test_data": {
+        "pods": "{\"items\":[{\"spec\":{\"containers\":[{\"name\":\"test-container\",\"resources\":{\"requests\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"}}}]}}]}"
+      }
+    }
+  ],
+  "metadata": {
+    "compliance_framework": "CIS Kubernetes Benchmark",
+    "references": [
+      "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+      "https://www.cisecurity.org/benchmark/kubernetes"
+    ],
+    "custom_fields": {
+      "control_ids": "[\"5.1.1\",\"5.1.2\"]"
+    }
+  },
+  "created_at": "1758762358",
+  "updated_at": "1758762358"
+}

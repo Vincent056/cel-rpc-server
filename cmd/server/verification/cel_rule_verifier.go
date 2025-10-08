@@ -9,7 +9,7 @@ import (
 
 	pb "github.com/Vincent056/cel-rpc-server/gen/cel/v1"
 
-	"github.com/Vincent056/celscanner"
+	"github.com/ComplianceAsCode/compliance-sdk/pkg/scanner"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -34,12 +34,12 @@ func NewMockFetcher(data map[string]interface{}) *MockFetcher {
 }
 
 // FetchResources implements ResourceFetcher interface for testing
-func (m *MockFetcher) FetchResources(ctx context.Context, rule celscanner.CelRule, variables []celscanner.CelVariable) (map[string]interface{}, []string, error) {
+func (m *MockFetcher) FetchResources(ctx context.Context, rule scanner.Rule, variables []scanner.CelVariable) (map[string]interface{}, []string, error) {
 	return m.data, nil, nil
 }
 
 // FetchInputs returns the predefined mock data
-func (m *MockFetcher) FetchInputs(inputs []celscanner.Input, variables []celscanner.CelVariable) (map[string]interface{}, error) {
+func (m *MockFetcher) FetchInputs(inputs []scanner.Input, variables []scanner.CelVariable) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	for _, input := range inputs {
 		if data, exists := m.data[input.Name()]; exists {
@@ -52,7 +52,7 @@ func (m *MockFetcher) FetchInputs(inputs []celscanner.Input, variables []celscan
 }
 
 // SupportsInputType returns true for all input types in mock mode
-func (m *MockFetcher) SupportsInputType(inputType celscanner.InputType) bool {
+func (m *MockFetcher) SupportsInputType(inputType scanner.InputType) bool {
 	return true
 }
 
@@ -88,7 +88,7 @@ func (v *CELRuleVerifier) VerifyCELRule(ctx context.Context, rule *pb.CELRule) (
 }
 
 // runTestCase executes a single test case using MockFetcher
-func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRule, testCase *pb.RuleTestCase) *TestCaseResult {
+func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule scanner.CelRule, testCase *pb.RuleTestCase) *TestCaseResult {
 	startTime := time.Now()
 
 	result := &TestCaseResult{
@@ -110,7 +110,7 @@ func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRu
 		testDataJSON, exists := testCase.TestData[inputName]
 		if !exists {
 			// No data provided - create empty list for Kubernetes inputs
-			if input.Type() == celscanner.InputTypeKubernetes {
+			if input.Type() == scanner.InputTypeKubernetes {
 				testDataJSON = `{"apiVersion": "v1", "kind": "List", "items": []}`
 			} else {
 				// For non-Kubernetes inputs, use empty object
@@ -128,7 +128,7 @@ func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRu
 		}
 
 		// Convert to proper Kubernetes unstructured objects for Kubernetes inputs
-		if input.Type() == celscanner.InputTypeKubernetes {
+		if input.Type() == scanner.InputTypeKubernetes {
 			// Check if data has "items" field to determine if it's a list
 			if dataMap, ok := data.(map[string]interface{}); ok {
 				if items, hasItems := dataMap["items"]; hasItems {
@@ -174,17 +174,17 @@ func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRu
 	mockFetcher := NewMockFetcher(mockData)
 
 	// Create scanner with mock fetcher
-	scanner := celscanner.NewScanner(mockFetcher, nil)
+	scannerInstance := scanner.NewScanner(mockFetcher, nil)
 
 	// Create scan configuration
-	config := celscanner.ScanConfig{
-		Rules:              []celscanner.CelRule{rule},
-		Variables:          []celscanner.CelVariable{},
+	config := scanner.ScanConfig{
+		Rules:              []scanner.Rule{rule},
+		Variables:          []scanner.CelVariable{},
 		EnableDebugLogging: false,
 	}
 
 	// Run the scan
-	results, err := scanner.Scan(ctx, config)
+	results, err := scannerInstance.Scan(ctx, config)
 	if err != nil {
 		result.Error = fmt.Sprintf("Scan failed: %v", err)
 		result.Passed = false
@@ -206,11 +206,11 @@ func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRu
 	// Check if result matches expectation
 	resultPassed := false
 	switch scanResult.Status {
-	case celscanner.CheckResultPass:
+	case scanner.CheckResultPass:
 		resultPassed = true
-	case celscanner.CheckResultFail:
+	case scanner.CheckResultFail:
 		resultPassed = false
-	case celscanner.CheckResultError:
+	case scanner.CheckResultError:
 		result.Error = scanResult.ErrorMessage
 		result.Passed = false
 		result.Duration = time.Since(startTime)
@@ -233,12 +233,12 @@ func (v *CELRuleVerifier) runTestCase(ctx context.Context, rule celscanner.CelRu
 }
 
 // convertToCELScannerRule converts proto rule to celscanner rule
-func (v *CELRuleVerifier) convertToCELScannerRule(rule *pb.CELRule) (celscanner.CelRule, error) {
+func (v *CELRuleVerifier) convertToCELScannerRule(rule *pb.CELRule) (scanner.CelRule, error) {
 	// Create rule builder
-	builder := celscanner.NewRuleBuilder(rule.Id).
+	builder := scanner.NewRuleBuilder(rule.Id, scanner.RuleTypeCEL).
 		WithName(rule.Name).
 		WithDescription(rule.Description).
-		SetExpression(rule.Expression)
+		SetCelExpression(rule.Expression)
 
 	// Add inputs
 	for _, input := range rule.Inputs {
@@ -287,7 +287,7 @@ func (v *CELRuleVerifier) convertToCELScannerRule(rule *pb.CELRule) (celscanner.
 		}
 	}
 	// try catch builder.Build()
-	builderRule, err := builder.Build()
+	builderRule, err := builder.BuildCelRule()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build rule: %w", err)
 	}

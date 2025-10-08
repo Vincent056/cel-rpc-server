@@ -1,0 +1,65 @@
+{
+  "id": "922f36e7-2eb6-4bb5-96d5-cf0424598402",
+  "name": "OpenShift Identity Provider Configuration",
+  "description": "This rule verifies that OpenShift Container Platform has at least one identity provider configured in the OAuth cluster configuration. This ensures that users can authenticate to the cluster through a proper identity provider rather than relying solely on client certificates, which improves security by enabling credential revocation capabilities.",
+  "expression": "oauth_config.spec.identityProviders.size() > 0",
+  "inputs": [
+    {
+      "name": "oauth_config",
+      "kubernetes": {
+        "group": "config.openshift.io",
+        "version": "v1",
+        "resource": "oauths",
+        "resource_name": "cluster"
+      }
+    }
+  ],
+  "tags": [
+    "openshift",
+    "authentication",
+    "oauth",
+    "identity-provider",
+    "compliance"
+  ],
+  "category": "security",
+  "severity": "medium",
+  "test_cases": [
+    {
+      "description": "OAuth config with identity providers configured",
+      "test_data": {
+        "oauth_config": "{\"apiVersion\":\"config.openshift.io/v1\",\"kind\":\"OAuth\",\"metadata\":{\"name\":\"cluster\"},\"spec\":{\"identityProviders\":[{\"htpasswd\":{\"fileData\":{\"name\":\"htpass-secret\"}},\"name\":\"htpasswd_provider\",\"type\":\"HTPasswd\"}]}}"
+      },
+      "expected_result": true
+    },
+    {
+      "description": "OAuth config with no identity providers",
+      "test_data": {
+        "oauth_config": "{\"apiVersion\":\"config.openshift.io/v1\",\"kind\":\"OAuth\",\"metadata\":{\"name\":\"cluster\"},\"spec\":{}}"
+      }
+    },
+    {
+      "description": "OAuth config with empty identity providers array",
+      "test_data": {
+        "oauth_config": "{\"apiVersion\":\"config.openshift.io/v1\",\"kind\":\"OAuth\",\"metadata\":{\"name\":\"cluster\"},\"spec\":{\"identityProviders\":[]}}"
+      }
+    },
+    {
+      "description": "OAuth config with multiple identity providers",
+      "test_data": {
+        "oauth_config": "{\"apiVersion\":\"config.openshift.io/v1\",\"kind\":\"OAuth\",\"metadata\":{\"name\":\"cluster\"},\"spec\":{\"identityProviders\":[{\"htpasswd\":{\"fileData\":{\"name\":\"htpass-secret\"}},\"name\":\"htpasswd_provider\",\"type\":\"HTPasswd\"},{\"ldap\":{\"url\":\"ldap://ldap.example.com\"},\"name\":\"ldap_provider\",\"type\":\"LDAP\"}]}}"
+      },
+      "expected_result": true
+    }
+  ],
+  "metadata": {
+    "compliance_framework": "CIS",
+    "references": [
+      "https://docs.openshift.com/container-platform/4.6/authentication/understanding-identity-provider.html"
+    ],
+    "custom_fields": {
+      "control_ids": "[\"3.1.1\"]"
+    }
+  },
+  "created_at": "1758727525",
+  "updated_at": "1758727525"
+}
